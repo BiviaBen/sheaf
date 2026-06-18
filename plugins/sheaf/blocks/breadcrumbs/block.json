@@ -1,0 +1,14 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "sheaf/breadcrumbs",
+	"title": "Sheaf: Breadcrumbs",
+	"category": "widgets",
+	"icon": "arrow-right-alt2",
+	"description": "Breadcrumb trail derived from the page/book hierarchy.",
+	"textdomain": "sheaf",
+	"supports": {
+		"html": false
+	},
+	"attributes": {}
+}

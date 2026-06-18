@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "sheaf/toc",
+	"title": "Sheaf: Table of Contents",
+	"category": "widgets",
+	"icon": "list-view",
+	"description": "Ordered list of a book's chapters. On a book page or chapter it detects the book automatically.",
+	"textdomain": "sheaf",
+	"supports": {
+		"html": false,
+		"align": ["wide", "full"]
+	},
+	"attributes": {
+		"book": {
+			"type": "number",
+			"default": 0
+		}
+	}
+}

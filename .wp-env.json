@@ -2,7 +2,8 @@
 	"$schema": "https://schemas.wp.org/trunk/wp-env.json",
 	"core": "WordPress/WordPress#7.0",
 	"phpVersion": "8.3",
-	"plugins": [],
+	"testsEnvironment": false,
+	"plugins": [ "./plugins/sheaf" ],
 	"config": {
 		"WP_DEBUG": true,
 		"WP_DEBUG_LOG": true,
