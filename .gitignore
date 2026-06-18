@@ -1,0 +1,14 @@
+# Local dev / wp-env
+.wp-env.override.json
+
+# Dependencies & build artifacts (regenerated, never committed)
+node_modules/
+vendor/
+build/
+
+# Logs & OS/editor cruft
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
