@@ -23,6 +23,18 @@ final class Frontend {
 		add_shortcode( 'sheaf_toc', [ self::class, 'toc_shortcode' ] );
 		add_shortcode( 'sheaf_breadcrumbs', [ self::class, 'breadcrumbs_shortcode' ] );
 		add_filter( 'the_content', [ self::class, 'auto_breadcrumbs' ], 9 );
+		add_filter( 'body_class', [ self::class, 'body_class' ] );
+	}
+
+	/**
+	 * Add a CSS hook when viewing a section divider, so it can be styled
+	 * differently from a normal chapter.
+	 */
+	public static function body_class( array $classes ): array {
+		if ( is_singular( Chapters::POST_TYPE ) && Chapters::is_section( (int) get_queried_object_id() ) ) {
+			$classes[] = 'sheaf-section';
+		}
+		return $classes;
 	}
 
 	public static function toc_shortcode( $atts ): string {

@@ -103,9 +103,23 @@ if ( ! function_exists( 'sheaf_seed_filler' ) ) {
 	}
 
 	/**
+	 * A short blurb for a section divider (a paragraph or two).
+	 */
+	function sheaf_seed_section_text( string $seed ): string {
+		$lines = [
+			'What follows was set down later, when the smoke had cleared enough to see by.',
+			'The first part of the war belongs to the living; the rest belongs to the water.',
+			'Here the wheels begin to turn in earnest, and nothing turns back.',
+			'Of the cold months little was written, and less was meant to last.',
+		];
+		$line = $lines[ (int) ( crc32( $seed ) % count( $lines ) ) ];
+		return "<!-- wp:paragraph -->\n<p>{$line}</p>\n<!-- /wp:paragraph -->";
+	}
+
+	/**
 	 * Upsert a chapter by (book, slug). Returns its ID.
 	 */
-	function sheaf_seed_chapter( int $book_id, string $slug, string $title, int $order, string $content ): int {
+	function sheaf_seed_chapter( int $book_id, string $slug, string $title, int $order, string $content, bool $is_section = false ): int {
 		\Sheaf\Books::set_book_context( $book_id );
 
 		$existing = get_posts(
@@ -125,7 +139,10 @@ if ( ! function_exists( 'sheaf_seed_filler' ) ) {
 			'post_name'    => $slug,
 			'menu_order'   => $order,
 			'post_content' => $content,
-			'meta_input'   => [ \Sheaf\Books::BOOK_META => $book_id ],
+			'meta_input'   => [
+				\Sheaf\Books::BOOK_META    => $book_id,
+				\Sheaf\Chapters::SECTION_META => $is_section,
+			],
 		];
 		if ( $existing ) {
 			$data['ID'] = $existing[0]->ID;
@@ -187,12 +204,15 @@ $chapters = [
 		[ '3-floodlight', 'Floodlight', 3 ],
 		[ 'epilogue', 'Epilogue', 4 ],
 	],
+	// Clockwork Heart shows section dividers interleaved with chapters.
 	$heart     => [
-		[ 'prologue', 'Prologue', 0 ],
-		[ '1', 'Chapter One', 1 ],
-		[ '2', 'Chapter Two', 2 ],
-		[ '3', 'Chapter Three', 3 ],
-		[ '4', 'Chapter Four', 4 ],
+		[ 'part-i-wind-up', 'Part I: Wind-Up', 0, true ],
+		[ 'prologue', 'Prologue', 1 ],
+		[ '1', 'Chapter One', 2 ],
+		[ '2', 'Chapter Two', 3 ],
+		[ 'part-ii-mainspring', 'Part II: The Mainspring', 4, true ],
+		[ '3', 'Chapter Three', 5 ],
+		[ '4', 'Chapter Four', 6 ],
 	],
 	$iron_wind => [
 		[ 'prologue', 'Prologue', 0 ],
@@ -212,7 +232,11 @@ $chapters = [
 
 foreach ( $chapters as $book_id => $list ) {
 	foreach ( $list as $c ) {
-		sheaf_seed_chapter( (int) $book_id, $c[0], $c[1], (int) $c[2], sheaf_seed_filler( $c[0] . '-' . $book_id ) );
+		$is_section = isset( $c[3] ) ? (bool) $c[3] : false;
+		$content    = $is_section
+			? sheaf_seed_section_text( $c[0] )
+			: sheaf_seed_filler( $c[0] . '-' . $book_id );
+		sheaf_seed_chapter( (int) $book_id, $c[0], $c[1], (int) $c[2], $content, $is_section );
 	}
 }
 

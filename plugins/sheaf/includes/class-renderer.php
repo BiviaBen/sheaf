@@ -59,7 +59,21 @@ final class Renderer {
 		$items = '';
 		foreach ( $chapters as $chapter ) {
 			$is_current = ( $chapter->ID === $current );
-			$items     .= sprintf(
+
+			// Section dividers ("Part I") are styled differently and carry no
+			// reading time.
+			if ( Chapters::is_section( (int) $chapter->ID ) ) {
+				$items .= sprintf(
+					'<li class="sheaf-toc__item sheaf-toc__item--section%1$s"><a class="sheaf-toc__part" href="%2$s"%3$s>%4$s</a></li>',
+					$is_current ? ' is-current' : '',
+					esc_url( get_permalink( $chapter ) ),
+					$is_current ? ' aria-current="page"' : '',
+					esc_html( get_the_title( $chapter ) )
+				);
+				continue;
+			}
+
+			$items .= sprintf(
 				'<li class="sheaf-toc__item%1$s"><a href="%2$s"%3$s>%4$s</a>%5$s</li>',
 				$is_current ? ' is-current' : '',
 				esc_url( get_permalink( $chapter ) ),

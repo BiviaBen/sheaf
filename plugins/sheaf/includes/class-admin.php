@@ -138,6 +138,12 @@ final class Admin {
 		);
 		echo '</p>';
 		echo '<p class="description">' . esc_html__( 'The book (Page) this chapter belongs to. Set reading order with the Order field.', 'sheaf' ) . '</p>';
+
+		printf(
+			'<p><label><input type="checkbox" name="sheaf_is_section" value="1"%s> %s</label></p>',
+			checked( Chapters::is_section( $post->ID ), true, false ),
+			esc_html__( 'This is a section divider (e.g. “Part I”), not a chapter.', 'sheaf' )
+		);
 	}
 
 	public static function save( int $post_id, \WP_Post $post ): void {
@@ -156,6 +162,12 @@ final class Admin {
 			update_post_meta( $post_id, Books::BOOK_META, $book_id );
 		} else {
 			delete_post_meta( $post_id, Books::BOOK_META );
+		}
+
+		if ( isset( $_POST['sheaf_is_section'] ) ) {
+			update_post_meta( $post_id, Chapters::SECTION_META, true );
+		} else {
+			delete_post_meta( $post_id, Chapters::SECTION_META );
 		}
 	}
 

@@ -15,9 +15,19 @@ final class Chapters {
 
 	public const POST_TYPE = 'sheaf_chapter';
 
+	/** Meta flag: this "chapter" is really a section divider (e.g. "Part I"). */
+	public const SECTION_META = '_sheaf_is_section';
+
 	public static function register(): void {
 		add_action( 'init', [ self::class, 'register_post_type' ] );
 		add_action( 'init', [ self::class, 'register_meta' ] );
+	}
+
+	/**
+	 * Whether a chapter is a section divider rather than a reading chapter.
+	 */
+	public static function is_section( int $post_id ): bool {
+		return (bool) get_post_meta( $post_id, self::SECTION_META, true );
 	}
 
 	public static function register_post_type(): void {
@@ -73,6 +83,20 @@ final class Chapters {
 				'default'           => 0,
 				'show_in_rest'      => true,
 				'sanitize_callback' => 'absint',
+				'auth_callback'     => static fn() => current_user_can( 'edit_posts' ),
+			]
+		);
+
+		register_post_meta(
+			self::POST_TYPE,
+			self::SECTION_META,
+			[
+				'type'              => 'boolean',
+				'description'       => __( 'Whether this entry is a section divider rather than a chapter.', 'sheaf' ),
+				'single'            => true,
+				'default'           => false,
+				'show_in_rest'      => true,
+				'sanitize_callback' => static fn( $value ) => (bool) $value,
 				'auth_callback'     => static fn() => current_user_can( 'edit_posts' ),
 			]
 		);

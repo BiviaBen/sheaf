@@ -14,8 +14,15 @@
 		var $status = $( '#sheaf-reorder-status' );
 
 		function renumber() {
-			$list.children( 'li' ).each( function ( index ) {
-				$( this ).find( '.sheaf-reorder__num' ).text( index + 1 );
+			var n = 0;
+			$list.children( 'li' ).each( function () {
+				var $num = $( this ).find( '.sheaf-reorder__num' );
+				if ( $( this ).hasClass( 'is-section' ) ) {
+					$num.text( '·' ); // Sections are not numbered.
+				} else {
+					n += 1;
+					$num.text( n );
+				}
 			} );
 		}
 

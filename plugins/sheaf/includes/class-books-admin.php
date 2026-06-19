@@ -109,8 +109,12 @@ final class Books_Admin {
 		foreach ( $book_ids as $book_id ) {
 			$chapters = Books::get_chapters_for_admin( $book_id );
 			$words    = 0;
+			$count    = 0;
 			foreach ( $chapters as $chapter ) {
 				$words += Words::get( (int) $chapter->ID );
+				if ( ! Chapters::is_section( (int) $chapter->ID ) ) {
+					++$count; // Section dividers are not counted as chapters.
+				}
 			}
 
 			$ancestors = array_map( 'get_the_title', Books::ancestors( $book_id ) );
@@ -134,7 +138,7 @@ final class Books_Admin {
 				esc_html__( 'Edit page', 'sheaf' )
 			);
 			printf( '<td>%s</td>', esc_html( $context ) );
-			printf( '<td>%s</td>', esc_html( number_format_i18n( count( $chapters ) ) ) );
+			printf( '<td>%s</td>', esc_html( number_format_i18n( $count ) ) );
 			printf( '<td>%s</td>', esc_html( number_format_i18n( $words ) ) );
 			echo '</tr>';
 		}
@@ -172,23 +176,35 @@ final class Books_Admin {
 			#sheaf-reorder .sheaf-reorder__num{min-width:2em;color:#787c82;text-align:right}
 			#sheaf-reorder .sheaf-reorder__status{margin-left:auto;color:#787c82;font-size:.9em}
 			#sheaf-reorder .sheaf-reorder__placeholder{height:2.6em;border:1px dashed #c3c4c7;background:#f6f7f7}
+			#sheaf-reorder li.is-section{background:#f0f6fc;font-weight:600}
+			#sheaf-reorder .sheaf-reorder__badge{margin-left:auto;font-size:.75em;font-weight:400;text-transform:uppercase;letter-spacing:.05em;color:#3858e9}
 		</style>';
 
 		printf( '<ul id="sheaf-reorder" data-book="%d">', $book_id );
 		$i = 1;
 		foreach ( $chapters as $chapter ) {
+			$is_section = Chapters::is_section( (int) $chapter->ID );
+
 			$status = ( 'publish' === $chapter->post_status )
 				? ''
 				: ' <span class="sheaf-reorder__status">' . esc_html( $chapter->post_status ) . '</span>';
 
+			$badge = $is_section
+				? ' <span class="sheaf-reorder__badge">' . esc_html__( 'Section', 'sheaf' ) . '</span>'
+				: '';
+
 			printf(
-				'<li data-id="%1$d"><span class="sheaf-reorder__handle dashicons dashicons-menu" aria-hidden="true"></span><span class="sheaf-reorder__num">%2$d</span><span class="sheaf-reorder__title">%3$s</span>%4$s</li>',
+				'<li data-id="%1$d" class="%2$s"><span class="sheaf-reorder__handle dashicons dashicons-menu" aria-hidden="true"></span><span class="sheaf-reorder__num">%3$s</span><span class="sheaf-reorder__title">%4$s</span>%5$s%6$s</li>',
 				(int) $chapter->ID,
-				$i,
+				$is_section ? 'is-section' : '',
+				$is_section ? '·' : (string) $i,
 				esc_html( get_the_title( $chapter ) ),
-				$status // already escaped above.
+				$badge,  // escaped above.
+				$status  // escaped above.
 			);
-			++$i;
+			if ( ! $is_section ) {
+				++$i;
+			}
 		}
 		echo '</ul>';
 
