@@ -24,6 +24,90 @@ final class Admin {
 
 		add_filter( 'manage_' . Chapters::POST_TYPE . '_posts_columns', [ self::class, 'columns' ] );
 		add_action( 'manage_' . Chapters::POST_TYPE . '_posts_custom_column', [ self::class, 'column' ], 10, 2 );
+
+		// "All Chapters" list: filter by book, and group by book + reading order.
+		add_action( 'restrict_manage_posts', [ self::class, 'book_filter' ] );
+		add_action( 'pre_get_posts', [ self::class, 'apply_book_filter' ] );
+		add_filter( 'posts_clauses', [ self::class, 'default_order' ], 10, 2 );
+	}
+
+	/**
+	 * Render the "filter by book" dropdown above the chapter list.
+	 */
+	public static function book_filter( string $post_type ): void {
+		if ( Chapters::POST_TYPE !== $post_type ) {
+			return;
+		}
+		$book_ids = Books::all_book_ids();
+		if ( ! $book_ids ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list filter.
+		$current = isset( $_GET['sheaf_book'] ) ? absint( $_GET['sheaf_book'] ) : 0;
+
+		echo '<label class="screen-reader-text" for="sheaf-book-filter">' . esc_html__( 'Filter by book', 'sheaf' ) . '</label>';
+		echo '<select name="sheaf_book" id="sheaf-book-filter">';
+		echo '<option value="0">' . esc_html__( 'All books', 'sheaf' ) . '</option>';
+		foreach ( $book_ids as $book_id ) {
+			printf(
+				'<option value="%1$d"%2$s>%3$s</option>',
+				$book_id,
+				selected( $current, $book_id, false ),
+				esc_html( get_the_title( $book_id ) )
+			);
+		}
+		echo '</select>';
+	}
+
+	/**
+	 * Narrow the chapter list to a chosen book.
+	 */
+	public static function apply_book_filter( \WP_Query $query ): void {
+		if ( ! is_admin() || ! $query->is_main_query() ) {
+			return;
+		}
+		if ( Chapters::POST_TYPE !== $query->get( 'post_type' ) ) {
+			return;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list filter.
+		$book_id = isset( $_GET['sheaf_book'] ) ? absint( $_GET['sheaf_book'] ) : 0;
+		if ( ! $book_id ) {
+			return;
+		}
+
+		$meta_query   = (array) $query->get( 'meta_query' );
+		$meta_query[] = [
+			'key'   => Books::BOOK_META,
+			'value' => $book_id,
+		];
+		$query->set( 'meta_query', $meta_query );
+	}
+
+	/**
+	 * Default the chapter list to group by book, then reading order — unless
+	 * the user clicked a sortable column header.
+	 */
+	public static function default_order( array $clauses, \WP_Query $query ): array {
+		if ( ! is_admin() || ! $query->is_main_query() ) {
+			return $clauses;
+		}
+		if ( Chapters::POST_TYPE !== $query->get( 'post_type' ) ) {
+			return $clauses;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list state.
+		if ( isset( $_GET['orderby'] ) ) {
+			return $clauses; // Respect an explicit column sort.
+		}
+
+		global $wpdb;
+		$meta_key = esc_sql( Books::BOOK_META );
+
+		$clauses['join']   .= " LEFT JOIN {$wpdb->postmeta} sheaf_bk ON {$wpdb->posts}.ID = sheaf_bk.post_id AND sheaf_bk.meta_key = '{$meta_key}'";
+		$clauses['join']   .= " LEFT JOIN {$wpdb->posts} sheaf_bp ON sheaf_bp.ID = CAST(sheaf_bk.meta_value AS UNSIGNED)";
+		$clauses['orderby'] = "sheaf_bp.post_title ASC, {$wpdb->posts}.menu_order ASC, {$wpdb->posts}.post_title ASC";
+
+		return $clauses;
 	}
 
 	public static function add_meta_box(): void {

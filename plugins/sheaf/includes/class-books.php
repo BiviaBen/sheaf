@@ -91,6 +91,37 @@ final class Books {
 	}
 
 	/**
+	 * IDs of every Page that has at least one chapter assigned to it — i.e. the
+	 * Pages that are "books" — ordered by title.
+	 *
+	 * @return int[]
+	 */
+	public static function all_book_ids(): array {
+		global $wpdb;
+
+		$ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT DISTINCT meta_value FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value > 0",
+				self::BOOK_META
+			)
+		);
+
+		$ids = array_filter( array_map( 'intval', (array) $ids ) );
+		if ( ! $ids ) {
+			return [];
+		}
+
+		// Order by the book's title for a friendly dropdown / listing.
+		$titles = [];
+		foreach ( $ids as $id ) {
+			$titles[ $id ] = get_the_title( $id );
+		}
+		asort( $titles, SORT_NATURAL | SORT_FLAG_CASE );
+
+		return array_keys( $titles );
+	}
+
+	/**
 	 * A book Page addressed by its full path (a chapter URL's prefix).
 	 */
 	public static function get_book_by_path( string $path ): ?\WP_Post {
