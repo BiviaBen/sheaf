@@ -135,19 +135,84 @@ final class Admin {
 
 	public static function render_meta_box( \WP_Post $post ): void {
 		wp_nonce_field( self::NONCE, self::NONCE );
-		$selected = Books::get_book_id( $post->ID );
+
+		$selected = (int) Books::get_book_id( $post->ID );
+		// Pre-select when arriving from a book's "add chapter" link.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only pre-fill.
+		if ( ! $selected && isset( $_GET['sheaf_book'] ) ) {
+			$selected = absint( $_GET['sheaf_book'] );
+		}
+
+		// Default the selector to existing books; fold in the current selection
+		// if it isn't a book yet (so it still appears).
+		$book_ids = Books::all_book_ids();
+		if ( $selected && ! in_array( $selected, $book_ids, true ) ) {
+			$book_ids[] = $selected;
+		}
 
 		echo '<p>';
-		wp_dropdown_pages(
+		echo '<select name="sheaf_book" id="sheaf-book-books">';
+		printf( '<option value="0">%s</option>', esc_html__( '— Unassigned —', 'sheaf' ) );
+		foreach ( $book_ids as $bid ) {
+			printf(
+				'<option value="%1$d"%2$s>%3$s</option>',
+				(int) $bid,
+				selected( $selected, (int) $bid, false ),
+				esc_html( get_the_title( (int) $bid ) )
+			);
+		}
+		echo '</select>';
+
+		// The full page list, hidden and disabled until "show all pages" is
+		// ticked. Disabled controls aren't submitted, so only one value is sent.
+		$all = (string) wp_dropdown_pages(
 			[
-				'name'             => 'sheaf_book',
-				'selected'         => $selected,
-				'show_option_none' => __( '— Unassigned —', 'sheaf' ),
+				'name'              => 'sheaf_book',
+				'id'                => 'sheaf-book-all',
+				'selected'          => $selected,
+				'show_option_none'  => __( '— Unassigned —', 'sheaf' ),
 				'option_none_value' => 0,
+				'echo'              => 0,
 			]
 		);
+		$all = preg_replace( '/<select /', '<select disabled ', $all, 1 );
+		echo '<span id="sheaf-book-all-wrap" style="display:none">' . $all . '</span>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wp_dropdown_pages output.
 		echo '</p>';
+
+		printf(
+			'<p><label><input type="checkbox" id="sheaf-book-allpages"> %s</label></p>',
+			esc_html__( 'Show all pages', 'sheaf' )
+		);
+		echo '<p class="description" id="sheaf-book-allpages-note" style="display:none">'
+			. esc_html__( 'Adding a Chapter to a Page turns that Page into a Book.', 'sheaf' )
+			. '</p>';
 		echo '<p class="description">' . esc_html__( 'The book (Page) this chapter belongs to. Set reading order with the Order field.', 'sheaf' ) . '</p>';
+		?>
+		<script>
+		( function () {
+			var cb    = document.getElementById( 'sheaf-book-allpages' );
+			var books = document.getElementById( 'sheaf-book-books' );
+			var wrap  = document.getElementById( 'sheaf-book-all-wrap' );
+			var all   = document.getElementById( 'sheaf-book-all' );
+			var note  = document.getElementById( 'sheaf-book-allpages-note' );
+			if ( ! cb || ! books || ! all ) { return; }
+			cb.addEventListener( 'change', function () {
+				if ( cb.checked ) {
+					all.value = books.value;
+					books.disabled = true;  books.style.display = 'none';
+					all.disabled = false;   wrap.style.display = '';
+					note.style.display = '';
+				} else {
+					var match = Array.prototype.some.call( books.options, function ( o ) { return o.value === all.value; } );
+					books.value = match ? all.value : '0';
+					all.disabled = true;    wrap.style.display = 'none';
+					books.disabled = false; books.style.display = '';
+					note.style.display = 'none';
+				}
+			} );
+		} )();
+		</script>
+		<?php
 
 		printf(
 			'<p><label><input type="checkbox" name="sheaf_is_section" value="1"%s> %s</label></p>',
