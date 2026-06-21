@@ -167,9 +167,24 @@ final class Admin {
 			return;
 		}
 
-		$book_id = isset( $_POST['sheaf_book'] ) ? absint( $_POST['sheaf_book'] ) : 0;
+		$prev_book = (int) get_post_meta( $post_id, Books::BOOK_META, true );
+		$book_id   = isset( $_POST['sheaf_book'] ) ? absint( $_POST['sheaf_book'] ) : 0;
 		if ( $book_id ) {
 			update_post_meta( $post_id, Books::BOOK_META, $book_id );
+
+			// When a chapter first joins a book and the author hasn't typed an
+			// explicit Order, drop it at the end so new chapters append rather
+			// than collide at the top. The author can then reorder freely.
+			$submitted_order = isset( $_POST['menu_order'] ) ? (int) $_POST['menu_order'] : 0;
+			if ( $book_id !== $prev_book && 0 === $submitted_order ) {
+				$next = self::next_menu_order_in_book( $book_id, $post_id );
+				if ( $next !== (int) $post->menu_order ) {
+					// Write menu_order directly to avoid re-entering save_post.
+					global $wpdb;
+					$wpdb->update( $wpdb->posts, [ 'menu_order' => $next ], [ 'ID' => $post_id ] );
+					clean_post_cache( $post_id );
+				}
+			}
 		} else {
 			delete_post_meta( $post_id, Books::BOOK_META );
 		}
@@ -179,6 +194,26 @@ final class Admin {
 		} else {
 			delete_post_meta( $post_id, Chapters::SECTION_META );
 		}
+	}
+
+	/**
+	 * The menu_order one past the last chapter in a book (0 for an empty book).
+	 */
+	private static function next_menu_order_in_book( int $book_id, int $exclude_id ): int {
+		global $wpdb;
+		$max = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT MAX(p.menu_order) FROM {$wpdb->posts} p
+				 INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = %s
+				 WHERE m.meta_value = %d AND p.post_type = %s AND p.ID <> %d
+				 AND p.post_status NOT IN ( 'trash', 'auto-draft' )",
+				Books::BOOK_META,
+				$book_id,
+				Chapters::POST_TYPE,
+				$exclude_id
+			)
+		);
+		return ( null === $max ) ? 0 : (int) $max + 1;
 	}
 
 	public static function columns( array $columns ): array {
