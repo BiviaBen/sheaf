@@ -31,6 +31,12 @@ final class Admin {
 		add_action( 'restrict_manage_posts', [ self::class, 'book_filter' ] );
 		add_action( 'pre_get_posts', [ self::class, 'apply_book_filter' ] );
 		add_filter( 'posts_clauses', [ self::class, 'default_order' ], 10, 2 );
+
+		// Quick Edit / Bulk Edit: assign chapters to a book (Page) from the list.
+		add_action( 'quick_edit_custom_box', [ self::class, 'quick_edit_box' ], 10, 2 );
+		add_action( 'bulk_edit_custom_box', [ self::class, 'bulk_edit_box' ], 10, 2 );
+		add_action( 'save_post_' . Chapters::POST_TYPE, [ self::class, 'save_inline' ], 10, 2 );
+		add_action( 'admin_enqueue_scripts', [ self::class, 'enqueue_inline' ] );
 	}
 
 	/**
@@ -72,6 +78,19 @@ final class Admin {
 		if ( Chapters::POST_TYPE !== $query->get( 'post_type' ) ) {
 			return;
 		}
+
+		// "Unassigned" view: chapters with no book at all.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list filter.
+		if ( ! empty( $_GET['sheaf_unassigned'] ) ) {
+			$meta_query   = (array) $query->get( 'meta_query' );
+			$meta_query[] = [
+				'key'     => Books::BOOK_META,
+				'compare' => 'NOT EXISTS',
+			];
+			$query->set( 'meta_query', $meta_query );
+			return;
+		}
+
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list filter.
 		$book_id = isset( $_GET['sheaf_book'] ) ? absint( $_GET['sheaf_book'] ) : 0;
 		if ( ! $book_id ) {
@@ -281,6 +300,12 @@ final class Admin {
 		if ( 'sheaf_book' === $column ) {
 			$book = Books::get_book( $post_id );
 			echo $book ? esc_html( get_the_title( $book ) ) : '<span aria-hidden="true">—</span>';
+			// Hidden source for Quick Edit to pre-select the current book.
+			printf(
+				'<span class="hidden" id="sheaf-book-inline-%1$d">%2$d</span>',
+				$post_id,
+				(int) Books::get_book_id( $post_id )
+			);
 		} elseif ( 'sheaf_order' === $column ) {
 			echo (int) get_post_field( 'menu_order', $post_id );
 		} elseif ( 'sheaf_words' === $column ) {
@@ -319,5 +344,132 @@ final class Admin {
 			$query->set( 'meta_key', Words::META );
 			$query->set( 'orderby', 'meta_value_num' );
 		}
+	}
+
+	/* ---- Quick Edit / Bulk Edit: assign a chapter to a book ---------------- */
+
+	public static function quick_edit_box( string $column, string $post_type ): void {
+		if ( Chapters::POST_TYPE === $post_type && 'sheaf_book' === $column ) {
+			self::inline_book_field( false );
+		}
+	}
+
+	public static function bulk_edit_box( string $column, string $post_type ): void {
+		if ( Chapters::POST_TYPE === $post_type && 'sheaf_book' === $column ) {
+			self::inline_book_field( true );
+		}
+	}
+
+	/**
+	 * The "Book" selector shown in the Quick/Bulk Edit panels. Lists every Page
+	 * (any Page can become a book), plus "Unassigned"; Bulk Edit adds a
+	 * "No change" default so untouched chapters keep their book.
+	 */
+	private static function inline_book_field( bool $bulk ): void {
+		$args = [
+			'name'              => 'sheaf_book',
+			'id'                => $bulk ? 'sheaf-bulk-book' : 'sheaf-quick-book',
+			'show_option_none'  => __( '— Unassigned —', 'sheaf' ),
+			'option_none_value' => 0,
+			'echo'              => 0,
+		];
+		if ( $bulk ) {
+			$args['show_option_no_change'] = __( '— No change —', 'sheaf' );
+		}
+		$dropdown = (string) wp_dropdown_pages( $args );
+		if ( '' === $dropdown ) {
+			return; // No pages exist to assign to.
+		}
+
+		echo '<fieldset class="inline-edit-col-right"><div class="inline-edit-col"><label class="inline-edit-group">';
+		echo '<span class="title">' . esc_html__( 'Book', 'sheaf' ) . '</span>';
+		echo '<span class="input-text-wrap">' . $dropdown . '</span>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wp_dropdown_pages output.
+		echo '</label></div></fieldset>';
+	}
+
+	/**
+	 * Save the Book selection from Quick Edit or Bulk Edit. Runs on save_post
+	 * alongside save(); each bails for the other's flow (distinct markers).
+	 */
+	public static function save_inline( int $post_id, \WP_Post $post ): void {
+		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+			return;
+		}
+		if ( wp_is_post_revision( $post_id ) || ! current_user_can( 'edit_post', $post_id ) ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified just below / by core for bulk.
+		$is_quick = isset( $_POST['_inline_edit'] ) && wp_verify_nonce( sanitize_key( wp_unslash( $_POST['_inline_edit'] ) ), 'inlineeditnonce' );
+		// Bulk edit is authorised by core (check_admin_referer 'bulk-posts')
+		// before it updates each post; we still re-check the per-post cap above.
+		$is_bulk = isset( $_REQUEST['bulk_edit'] );
+		if ( ! $is_quick && ! $is_bulk ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- see above.
+		if ( ! isset( $_REQUEST['sheaf_book'] ) ) {
+			return;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- see above.
+		$value = (int) wp_unslash( $_REQUEST['sheaf_book'] );
+		if ( $value < 0 ) {
+			return; // -1 = Bulk Edit "No change".
+		}
+
+		self::set_chapter_book( $post_id, $value );
+	}
+
+	/**
+	 * Move a chapter to a book (0 = unassign). Keeps the chapter's slug unique
+	 * within its new book and appends it to that book's reading order. Writes
+	 * post fields directly to avoid re-entering save_post.
+	 */
+	private static function set_chapter_book( int $post_id, int $book_id ): void {
+		$prev = (int) get_post_meta( $post_id, Books::BOOK_META, true );
+		if ( $book_id === $prev ) {
+			return;
+		}
+
+		if ( ! $book_id ) {
+			delete_post_meta( $post_id, Books::BOOK_META );
+			return;
+		}
+
+		update_post_meta( $post_id, Books::BOOK_META, $book_id );
+
+		$post = get_post( $post_id );
+		if ( ! $post instanceof \WP_Post ) {
+			return;
+		}
+
+		$fields = [ 'menu_order' => Books::next_menu_order( $book_id, $post_id ) ];
+		$unique = Books::unique_chapter_slug( $post->post_name, $book_id, $post_id );
+		if ( $unique !== $post->post_name ) {
+			$fields['post_name'] = $unique;
+		}
+
+		global $wpdb;
+		$wpdb->update( $wpdb->posts, $fields, [ 'ID' => $post_id ] );
+		clean_post_cache( $post_id );
+	}
+
+	/**
+	 * Pre-select the current book when Quick Edit opens on the chapter list.
+	 */
+	public static function enqueue_inline( string $hook ): void {
+		if ( 'edit.php' !== $hook || Chapters::POST_TYPE !== ( $GLOBALS['typenow'] ?? '' ) ) {
+			return;
+		}
+		$asset = SHEAF_DIR . 'assets/admin-inline.js';
+		$ver   = file_exists( $asset ) ? (string) filemtime( $asset ) : SHEAF_VERSION;
+		wp_enqueue_script(
+			'sheaf-inline',
+			SHEAF_URL . 'assets/admin-inline.js',
+			[ 'jquery', 'inline-edit-post' ],
+			$ver,
+			true
+		);
 	}
 }

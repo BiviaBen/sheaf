@@ -154,6 +154,30 @@ final class Books_Admin {
 		echo '<h1 class="wp-heading-inline">' . esc_html__( 'Books', 'sheaf' ) . '</h1>';
 		echo '<p class="description">' . esc_html__( 'Every Page that has chapters assigned to it appears here.', 'sheaf' ) . '</p>';
 
+		// Surface orphaned chapters (e.g. left behind when a book Page is
+		// deleted) with a link to the list, where they can be bulk-assigned.
+		$unassigned = Books::unassigned_chapter_count();
+		if ( $unassigned ) {
+			$url = add_query_arg(
+				[
+					'post_type'        => Chapters::POST_TYPE,
+					'sheaf_unassigned' => 1,
+				],
+				admin_url( 'edit.php' )
+			);
+			printf(
+				'<p><a href="%1$s">%2$s</a></p>',
+				esc_url( $url ),
+				esc_html(
+					sprintf(
+						/* translators: %s: number of unassigned chapters. */
+						_n( '%s chapter is not assigned to a book — assign it', '%s chapters are not assigned to a book — assign them', $unassigned, 'sheaf' ),
+						number_format_i18n( $unassigned )
+					)
+				)
+			);
+		}
+
 		if ( ! $book_ids ) {
 			echo '<p>' . esc_html__( 'No books yet. Assign a chapter to a Page using the Book selector on the chapter editor.', 'sheaf' ) . '</p>';
 			return;
