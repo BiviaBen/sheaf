@@ -90,7 +90,17 @@ final class Permalinks {
 			return $link;
 		}
 
-		$slug    = $post->post_name;
+		$slug = $post->post_name;
+
+		// Drafts and pending chapters have no slug yet, so there is no canonical
+		// nested URL. Core already built a correct ?post_type=…&p=ID permalink
+		// (this is what the list table's "Preview" action uses); building the
+		// nested path here would collapse to the book's own page, since the
+		// trailing chapter segment would be empty.
+		if ( '' === $slug ) {
+			return $link;
+		}
+
 		$book_id = Books::get_book_id( $post->ID );
 		$base    = $book_id ? get_page_uri( $book_id ) : '';
 		$path    = $base ? trailingslashit( $base ) . $slug : $slug;
