@@ -64,13 +64,8 @@ final class Books_Admin {
 			self::PAGE,
 			[ self::class, 'render' ]
 		);
-		add_submenu_page(
-			self::PAGE,
-			__( 'Chapters', 'sheaf' ),
-			__( 'Chapters', 'sheaf' ),
-			self::CAPABILITY,
-			'edit.php?post_type=' . Chapters::POST_TYPE
-		);
+		// No standalone "Chapters" link: chapters are only meaningful inside a
+		// book, so they are managed from each book's screen instead.
 		add_submenu_page(
 			self::PAGE,
 			__( 'New Chapter', 'sheaf' ),
@@ -100,7 +95,9 @@ final class Books_Admin {
 		if ( 'post-new.php' === ( $GLOBALS['pagenow'] ?? '' ) ) {
 			return 'post-new.php?post_type=' . Chapters::POST_TYPE;
 		}
-		return 'edit.php?post_type=' . Chapters::POST_TYPE;
+		// The chapter list and editor live under "Books" now that there is no
+		// standalone Chapters menu item.
+		return self::PAGE;
 	}
 
 	public static function enqueue( string $hook ): void {
@@ -259,6 +256,8 @@ final class Books_Admin {
 		);
 		echo '<hr class="wp-header-end">';
 
+		self::render_chapter_list( $chapters );
+
 		echo '<h2>' . esc_html__( 'Reading order', 'sheaf' ) . '</h2>';
 		echo '<p class="description">' . esc_html__( 'Drag chapters to set the order they are read in. Changes save automatically.', 'sheaf' ) . '</p>';
 		echo '<p id="sheaf-reorder-status" class="description" aria-live="polite"></p>';
@@ -307,6 +306,78 @@ final class Books_Admin {
 		// show-TOC-on-chapters, etc.). Intentionally not yet functional.
 		echo '<h2>' . esc_html__( 'Display settings', 'sheaf' ) . '</h2>';
 		echo '<p class="description">' . esc_html__( 'Per-book display settings (chapter breaks, table of contents on chapters, …) will live here.', 'sheaf' ) . '</p>';
+	}
+
+	/**
+	 * The book's chapters as a list table — title (with edit/view/trash
+	 * actions), reading order and word count. This replaces the standalone
+	 * Chapters screen; it is always scoped to this one book, so there is no
+	 * "Book" column and no per-book filter.
+	 *
+	 * @param \WP_Post[] $chapters
+	 */
+	private static function render_chapter_list( array $chapters ): void {
+		echo '<h2>' . esc_html__( 'Chapters', 'sheaf' ) . '</h2>';
+
+		echo '<table class="wp-list-table widefat fixed striped">';
+		echo '<thead><tr>';
+		echo '<th>' . esc_html__( 'Title', 'sheaf' ) . '</th>';
+		echo '<th style="width:6em">' . esc_html__( 'Order', 'sheaf' ) . '</th>';
+		echo '<th style="width:9em">' . esc_html__( 'Words', 'sheaf' ) . '</th>';
+		echo '</tr></thead><tbody>';
+
+		foreach ( $chapters as $chapter ) {
+			$id         = (int) $chapter->ID;
+			$is_section = Chapters::is_section( $id );
+			$edit       = (string) get_edit_post_link( $id );
+
+			// Title cell: editable-link, an optional status/section tag, and the
+			// usual Edit / View-or-Preview / Trash row actions.
+			echo '<tr><td>';
+			printf(
+				'<strong><a class="row-title" href="%1$s">%2$s</a></strong>',
+				esc_url( $edit ),
+				esc_html( get_the_title( $chapter ) )
+			);
+			if ( $is_section ) {
+				echo ' <span class="post-state">' . esc_html__( 'Section', 'sheaf' ) . '</span>';
+			} elseif ( 'publish' !== $chapter->post_status ) {
+				echo ' <span class="post-state">' . esc_html( ucfirst( $chapter->post_status ) ) . '</span>';
+			}
+
+			$actions = [];
+			if ( $edit ) {
+				$actions[] = sprintf( '<a href="%s">%s</a>', esc_url( $edit ), esc_html__( 'Edit', 'sheaf' ) );
+			}
+			if ( 'publish' === $chapter->post_status ) {
+				$actions[] = sprintf( '<a href="%s">%s</a>', esc_url( (string) get_permalink( $id ) ), esc_html__( 'View', 'sheaf' ) );
+			} else {
+				$actions[] = sprintf( '<a href="%s">%s</a>', esc_url( get_preview_post_link( $id ) ), esc_html__( 'Preview', 'sheaf' ) );
+			}
+			$trash = get_delete_post_link( $id );
+			if ( $trash ) {
+				$actions[] = sprintf( '<a class="submitdelete" href="%s">%s</a>', esc_url( $trash ), esc_html__( 'Trash', 'sheaf' ) );
+			}
+			printf( '<div class="row-actions"><span>%s</span></div>', implode( ' | </span><span>', $actions ) );
+			echo '</td>';
+
+			printf( '<td>%s</td>', (int) $chapter->menu_order );
+
+			if ( $is_section ) {
+				echo '<td><span aria-hidden="true">—</span></td>';
+			} else {
+				$words   = Words::get( $id );
+				$minutes = Words::reading_minutes( $words );
+				printf(
+					'<td>%1$s<br><span class="description">%2$s</span></td>',
+					esc_html( number_format_i18n( $words ) ),
+					esc_html( sprintf( /* translators: %d: reading time in minutes. */ _n( '%d min', '%d min', $minutes, 'sheaf' ), $minutes ) )
+				);
+			}
+			echo '</tr>';
+		}
+
+		echo '</tbody></table>';
 	}
 
 	/**
