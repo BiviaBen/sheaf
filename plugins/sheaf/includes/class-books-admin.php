@@ -262,16 +262,46 @@ final class Books_Admin {
 			admin_url( 'post-new.php' )
 		);
 
+		$permalink = (string) get_permalink( $book_id );
+		$edit_page = (string) get_edit_post_link( $book_id );
+
+		echo '<style>
+			.sheaf-back{display:inline-block;margin:.6em 0 .2em;color:#646970;text-decoration:none;font-size:13px}
+			.sheaf-back:hover,.sheaf-back:focus{color:#2271b1}
+			.sheaf-book-heading{margin:0 0 .4em}
+			.sheaf-book-heading .wp-heading-inline{margin:0}
+			.sheaf-book-title{text-decoration:none;color:inherit}
+			.sheaf-book-title:hover,.sheaf-book-title:focus{color:#2271b1}
+			.sheaf-book-heading .row-actions{left:auto;visibility:hidden}
+			.sheaf-book-heading:hover .row-actions,.sheaf-book-heading:focus-within .row-actions{visibility:visible}
+		</style>';
+
+		// "Back to the list" link, sitting above the title — muted and unstyled,
+		// not a button.
 		printf(
-			'<h1 class="wp-heading-inline">%1$s</h1> <a href="%2$s" class="page-title-action">%3$s</a> <a href="%4$s" class="page-title-action">%5$s</a> <a href="%6$s" class="page-title-action">%7$s</a>',
-			esc_html( get_the_title( $book_id ) ),
-			esc_url( $add_url ),
-			esc_html__( 'Add chapter', 'sheaf' ),
-			esc_url( Import::url( $book_id ) ),
-			esc_html__( 'Import chapters', 'sheaf' ),
+			'<a href="%1$s" class="sheaf-back">&larr; %2$s</a>',
 			esc_url( $back ),
-			esc_html__( 'All books', 'sheaf' )
+			esc_html__( 'All Books', 'sheaf' )
 		);
+
+		// Title links to the live book page; the management actions reveal on hover.
+		echo '<div class="sheaf-book-heading">';
+		printf(
+			'<h1 class="wp-heading-inline"><a href="%1$s" class="sheaf-book-title">%2$s</a></h1>',
+			esc_url( $permalink ),
+			esc_html( get_the_title( $book_id ) )
+		);
+
+		$actions   = [];
+		$actions[] = sprintf( '<span class="view"><a href="%s">%s</a></span>', esc_url( $permalink ), esc_html__( 'View Book', 'sheaf' ) );
+		if ( $edit_page ) {
+			$actions[] = sprintf( '<span class="edit"><a href="%s">%s</a></span>', esc_url( $edit_page ), esc_html__( 'Edit Book Page', 'sheaf' ) );
+		}
+		$actions[] = sprintf( '<span><a href="%s">%s</a></span>', esc_url( $add_url ), esc_html__( 'Add New Chapter', 'sheaf' ) );
+		$actions[] = sprintf( '<span><a href="%s">%s</a></span>', esc_url( Import::url( $book_id ) ), esc_html__( 'Import Chapters', 'sheaf' ) );
+		echo '<div class="row-actions">' . implode( ' | ', $actions ) . '</div>'; // Links built and escaped above.
+		echo '</div>';
+
 		echo '<hr class="wp-header-end">';
 
 		echo '<h2>' . esc_html__( 'Chapters', 'sheaf' ) . '</h2>';
