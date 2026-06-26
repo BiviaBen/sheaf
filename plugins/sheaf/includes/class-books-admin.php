@@ -270,51 +270,12 @@ final class Books_Admin {
 		);
 		echo '<hr class="wp-header-end">';
 
-		self::render_chapter_list( $chapters );
-
-		echo '<h2>' . esc_html__( 'Reading order', 'sheaf' ) . '</h2>';
-		echo '<p class="description">' . esc_html__( 'Drag chapters to set the order they are read in. Changes save automatically.', 'sheaf' ) . '</p>';
+		echo '<h2>' . esc_html__( 'Chapters', 'sheaf' ) . '</h2>';
+		echo '<p class="description">' . esc_html__( 'Drag a chapter by its handle to set the reading order — changes save automatically.', 'sheaf' ) . '</p>';
 		echo '<p id="sheaf-reorder-status" class="description" aria-live="polite"></p>';
 
-		// Minimal styling kept inline so there is no extra stylesheet to ship.
-		echo '<style>
-			#sheaf-reorder{max-width:640px;margin:0;padding:0;list-style:none}
-			#sheaf-reorder li{display:flex;align-items:center;gap:.5em;background:#fff;border:1px solid #dcdcde;padding:.6em .8em;margin:0 0 -1px}
-			#sheaf-reorder .sheaf-reorder__handle{cursor:grab;color:#787c82}
-			#sheaf-reorder .sheaf-reorder__num{min-width:2em;color:#787c82;text-align:right}
-			#sheaf-reorder .sheaf-reorder__status{margin-left:auto;color:#787c82;font-size:.9em}
-			#sheaf-reorder .sheaf-reorder__placeholder{height:2.6em;border:1px dashed #c3c4c7;background:#f6f7f7}
-			#sheaf-reorder li.is-section{background:#f0f6fc;font-weight:600}
-			#sheaf-reorder .sheaf-reorder__badge{margin-left:auto;font-size:.75em;font-weight:400;text-transform:uppercase;letter-spacing:.05em;color:#3858e9}
-		</style>';
-
-		printf( '<ul id="sheaf-reorder" data-book="%d">', $book_id );
-		$i = 1;
-		foreach ( $chapters as $chapter ) {
-			$is_section = Chapters::is_section( (int) $chapter->ID );
-
-			$status = ( 'publish' === $chapter->post_status )
-				? ''
-				: ' <span class="sheaf-reorder__status">' . esc_html( $chapter->post_status ) . '</span>';
-
-			$badge = $is_section
-				? ' <span class="sheaf-reorder__badge">' . esc_html__( 'Section', 'sheaf' ) . '</span>'
-				: '';
-
-			printf(
-				'<li data-id="%1$d" class="%2$s"><span class="sheaf-reorder__handle dashicons dashicons-menu" aria-hidden="true"></span><span class="sheaf-reorder__num">%3$s</span><span class="sheaf-reorder__title">%4$s</span>%5$s%6$s</li>',
-				(int) $chapter->ID,
-				$is_section ? 'is-section' : '',
-				$is_section ? '·' : (string) $i,
-				esc_html( get_the_title( $chapter ) ),
-				$badge,  // escaped above.
-				$status  // escaped above.
-			);
-			if ( ! $is_section ) {
-				++$i;
-			}
-		}
-		echo '</ul>';
+		self::reorder_styles();
+		self::render_chapters_table( $book_id, $chapters );
 
 		// Scaffold: room for future per-book settings (chapter-break layout,
 		// show-TOC-on-chapters, etc.). Intentionally not yet functional.
@@ -323,75 +284,185 @@ final class Books_Admin {
 	}
 
 	/**
-	 * The book's chapters as a list table — title (with edit/view/trash
-	 * actions), reading order and word count. This replaces the standalone
-	 * Chapters screen; it is always scoped to this one book, so there is no
-	 * "Book" column and no per-book filter.
+	 * The book's chapters as one sortable list table: drag a row by its handle
+	 * to set the reading order (saved over AJAX), with the overview columns an
+	 * author wants in the same rows — reading position, publish state and last
+	 * edit, comments, and word count. Always scoped to a single book, so there
+	 * is no "Book" column and no per-book filter.
 	 *
 	 * @param \WP_Post[] $chapters
 	 */
-	private static function render_chapter_list( array $chapters ): void {
-		echo '<h2>' . esc_html__( 'Chapters', 'sheaf' ) . '</h2>';
-
-		echo '<table class="wp-list-table widefat fixed striped">';
+	private static function render_chapters_table( int $book_id, array $chapters ): void {
+		echo '<table class="wp-list-table widefat fixed striped sheaf-chapters">';
 		echo '<thead><tr>';
-		echo '<th>' . esc_html__( 'Title', 'sheaf' ) . '</th>';
-		echo '<th style="width:6em">' . esc_html__( 'Order', 'sheaf' ) . '</th>';
-		echo '<th style="width:9em">' . esc_html__( 'Words', 'sheaf' ) . '</th>';
-		echo '</tr></thead><tbody>';
+		echo '<th scope="col" style="width:5.5em">' . esc_html__( 'Order', 'sheaf' ) . '</th>';
+		echo '<th scope="col">' . esc_html__( 'Title', 'sheaf' ) . '</th>';
+		echo '<th scope="col" style="width:13em">' . esc_html__( 'Status', 'sheaf' ) . '</th>';
+		echo '<th scope="col" style="width:6em">' . esc_html__( 'Comments', 'sheaf' ) . '</th>';
+		echo '<th scope="col" style="width:9em">' . esc_html__( 'Words', 'sheaf' ) . '</th>';
+		echo '</tr></thead>';
 
+		printf( '<tbody id="sheaf-reorder" data-book="%d">', $book_id );
+
+		if ( ! $chapters ) {
+			echo '<tr class="no-items"><td colspan="5">' . esc_html__( 'No chapters yet.', 'sheaf' ) . '</td></tr>';
+		}
+
+		$i = 1;
 		foreach ( $chapters as $chapter ) {
 			$id         = (int) $chapter->ID;
 			$is_section = Chapters::is_section( $id );
-			$edit       = (string) get_edit_post_link( $id );
 
-			// Title cell: editable-link, an optional status/section tag, and the
-			// usual Edit / View-or-Preview / Trash row actions.
-			echo '<tr><td>';
+			printf( '<tr data-id="%1$d" class="%2$s">', $id, $is_section ? 'is-section' : '' );
+
+			// Order: drag handle + reading position (sections are not numbered).
 			printf(
-				'<strong><a class="row-title" href="%1$s">%2$s</a></strong>',
-				esc_url( $edit ),
-				esc_html( get_the_title( $chapter ) )
+				'<td class="sheaf-order-cell"><span class="sheaf-reorder__handle dashicons dashicons-menu" aria-hidden="true"></span> <span class="sheaf-reorder__num">%s</span></td>',
+				$is_section ? '·' : esc_html( number_format_i18n( $i ) )
 			);
-			if ( $is_section ) {
-				echo ' <span class="post-state">' . esc_html__( 'Section', 'sheaf' ) . '</span>';
-			} elseif ( 'publish' !== $chapter->post_status ) {
-				echo ' <span class="post-state">' . esc_html( ucfirst( $chapter->post_status ) ) . '</span>';
-			}
 
-			$actions = [];
-			if ( $edit ) {
-				$actions[] = sprintf( '<a href="%s">%s</a>', esc_url( $edit ), esc_html__( 'Edit', 'sheaf' ) );
-			}
-			if ( 'publish' === $chapter->post_status ) {
-				$actions[] = sprintf( '<a href="%s">%s</a>', esc_url( (string) get_permalink( $id ) ), esc_html__( 'View', 'sheaf' ) );
-			} else {
-				$actions[] = sprintf( '<a href="%s">%s</a>', esc_url( get_preview_post_link( $id ) ), esc_html__( 'Preview', 'sheaf' ) );
-			}
-			$trash = get_delete_post_link( $id );
-			if ( $trash ) {
-				$actions[] = sprintf( '<a class="submitdelete" href="%s">%s</a>', esc_url( $trash ), esc_html__( 'Trash', 'sheaf' ) );
-			}
-			printf( '<div class="row-actions"><span>%s</span></div>', implode( ' | </span><span>', $actions ) );
-			echo '</td>';
+			self::title_cell( $chapter, $is_section );
+			self::status_cell( $chapter );
+			self::comments_cell( $id );
+			self::words_cell( $id, $is_section );
 
-			printf( '<td>%s</td>', (int) $chapter->menu_order );
-
-			if ( $is_section ) {
-				echo '<td><span aria-hidden="true">—</span></td>';
-			} else {
-				$words   = Words::get( $id );
-				$minutes = Words::reading_minutes( $words );
-				printf(
-					'<td>%1$s<br><span class="description">%2$s</span></td>',
-					esc_html( number_format_i18n( $words ) ),
-					esc_html( sprintf( /* translators: %d: reading time in minutes. */ _n( '%d min', '%d min', $minutes, 'sheaf' ), $minutes ) )
-				);
-			}
 			echo '</tr>';
+
+			if ( ! $is_section ) {
+				++$i;
+			}
 		}
 
 		echo '</tbody></table>';
+	}
+
+	/**
+	 * Title cell: editable title link, a section tag, and the
+	 * Edit / View-or-Preview / Trash row actions.
+	 */
+	private static function title_cell( \WP_Post $chapter, bool $is_section ): void {
+		$id   = (int) $chapter->ID;
+		$edit = (string) get_edit_post_link( $id );
+
+		echo '<td>';
+		if ( $edit ) {
+			printf( '<strong class="sheaf-title"><a class="row-title" href="%1$s">%2$s</a></strong>', esc_url( $edit ), esc_html( get_the_title( $chapter ) ) );
+		} else {
+			printf( '<strong class="sheaf-title">%s</strong>', esc_html( get_the_title( $chapter ) ) );
+		}
+		if ( $is_section ) {
+			echo ' <span class="post-state">' . esc_html__( 'Section', 'sheaf' ) . '</span>';
+		}
+
+		$actions = [];
+		if ( $edit ) {
+			$actions[] = sprintf( '<a href="%s">%s</a>', esc_url( $edit ), esc_html__( 'Edit', 'sheaf' ) );
+		}
+		if ( 'publish' === $chapter->post_status ) {
+			$actions[] = sprintf( '<a href="%s">%s</a>', esc_url( (string) get_permalink( $id ) ), esc_html__( 'View', 'sheaf' ) );
+		} else {
+			$actions[] = sprintf( '<a href="%s">%s</a>', esc_url( get_preview_post_link( $id ) ), esc_html__( 'Preview', 'sheaf' ) );
+		}
+		$trash = get_delete_post_link( $id );
+		if ( $trash ) {
+			$actions[] = sprintf( '<a class="submitdelete" href="%s">%s</a>', esc_url( $trash ), esc_html__( 'Trash', 'sheaf' ) );
+		}
+		printf( '<div class="row-actions"><span>%s</span></div>', implode( ' | </span><span>', $actions ) );
+		echo '</td>';
+	}
+
+	/**
+	 * Status cell: publish state plus a date — when it went live, or, for
+	 * everything else, when it was last edited (so stale drafts stand out).
+	 */
+	private static function status_cell( \WP_Post $chapter ): void {
+		$obj   = get_post_status_object( get_post_status( $chapter ) );
+		$label = $obj ? $obj->label : ucfirst( $chapter->post_status );
+
+		if ( 'publish' === $chapter->post_status ) {
+			/* translators: %s: date a chapter was published. */
+			$when = sprintf( __( 'Published %s', 'sheaf' ), get_the_date( '', $chapter ) );
+		} else {
+			/* translators: %s: date a chapter was last edited. */
+			$when = sprintf( __( 'Edited %s', 'sheaf' ), get_the_modified_date( '', $chapter ) );
+		}
+
+		printf(
+			'<td><span class="sheaf-status">%1$s</span><br><span class="description">%2$s</span></td>',
+			esc_html( $label ),
+			esc_html( $when )
+		);
+	}
+
+	/**
+	 * Comments cell: the familiar approved-count bubble, plus a pending bubble
+	 * linking to the moderation queue when comments await review. (WordPress
+	 * tracks no per-reader "new/unread" state, and stores no view counts.)
+	 */
+	private static function comments_cell( int $id ): void {
+		$approved = (int) get_comments_number( $id );
+		$pending  = function_exists( 'get_pending_comments_num' ) ? (int) get_pending_comments_num( $id ) : 0;
+
+		echo '<td class="column-comments">';
+		if ( $approved || $pending ) {
+			$base = admin_url( 'edit-comments.php?p=' . $id );
+			echo '<div class="post-com-count-wrapper">';
+			printf(
+				'<a href="%1$s" class="post-com-count post-com-count-approved"><span class="comment-count-approved" aria-hidden="true">%2$s</span><span class="screen-reader-text">%3$s</span></a>',
+				esc_url( $base ),
+				esc_html( number_format_i18n( $approved ) ),
+				/* translators: %s: number of approved comments. */
+				esc_html( sprintf( _n( '%s approved comment', '%s approved comments', $approved, 'sheaf' ), number_format_i18n( $approved ) ) )
+			);
+			if ( $pending ) {
+				printf(
+					'<a href="%1$s" class="post-com-count post-com-count-pending"><span class="comment-count-pending" aria-hidden="true">%2$s</span><span class="screen-reader-text">%3$s</span></a>',
+					esc_url( add_query_arg( 'comment_status', 'moderated', $base ) ),
+					esc_html( number_format_i18n( $pending ) ),
+					/* translators: %s: number of comments awaiting moderation. */
+					esc_html( sprintf( _n( '%s comment awaiting moderation', '%s comments awaiting moderation', $pending, 'sheaf' ), number_format_i18n( $pending ) ) )
+				);
+			}
+			echo '</div>';
+		} else {
+			echo '<span aria-hidden="true">—</span>';
+		}
+		echo '</td>';
+	}
+
+	/**
+	 * Words cell: word count and reading time (sections carry neither).
+	 */
+	private static function words_cell( int $id, bool $is_section ): void {
+		if ( $is_section ) {
+			echo '<td><span aria-hidden="true">—</span></td>';
+			return;
+		}
+		$words   = Words::get( $id );
+		$minutes = Words::reading_minutes( $words );
+		printf(
+			'<td>%1$s<br><span class="description">%2$s</span></td>',
+			esc_html( number_format_i18n( $words ) ),
+			/* translators: %d: reading time in minutes. */
+			esc_html( sprintf( _n( '%d min', '%d min', $minutes, 'sheaf' ), $minutes ) )
+		);
+	}
+
+	/**
+	 * Inline styling for the sortable chapters table — kept inline so there is
+	 * no extra stylesheet to ship.
+	 */
+	private static function reorder_styles(): void {
+		echo '<style>
+			.sheaf-chapters .sheaf-order-cell{white-space:nowrap}
+			.sheaf-chapters .sheaf-reorder__handle{cursor:grab;color:#787c82;vertical-align:middle}
+			.sheaf-chapters .sheaf-reorder__num{display:inline-block;min-width:1.6em;text-align:right;color:#50575e}
+			.sheaf-chapters tr.is-section td{background:#f0f6fc}
+			.sheaf-chapters tr.is-section .sheaf-title{font-weight:600}
+			.sheaf-chapters .sheaf-status{font-weight:600}
+			.sheaf-reorder__placeholder td{background:#f6f7f7}
+			tr.ui-sortable-helper{box-shadow:0 2px 6px rgba(0,0,0,.18);display:table}
+		</style>';
 	}
 
 	/**
