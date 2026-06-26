@@ -35,6 +35,64 @@ final class Books {
 		return self::$book_context;
 	}
 
+	public static function register(): void {
+		// When a book Page is permanently deleted, detach its chapters so they
+		// become "Unassigned" rather than pointing at a tombstone. Trashing does
+		// not fire this (before_delete_post is delete-only), so restoring a
+		// trashed book re-links its chapters.
+		add_action( 'before_delete_post', [ self::class, 'unassign_on_delete' ] );
+	}
+
+	/**
+	 * Detach every chapter from a book Page that is being permanently deleted.
+	 */
+	public static function unassign_on_delete( int $post_id ): void {
+		if ( 'page' !== get_post_type( $post_id ) ) {
+			return; // Books are Pages; ignore other deletions cheaply.
+		}
+		self::unassign_all( $post_id );
+	}
+
+	/**
+	 * Remove the book assignment from every chapter in a book.
+	 *
+	 * @return int Number of chapters detached.
+	 */
+	public static function unassign_all( int $book_id ): int {
+		if ( ! $book_id ) {
+			return 0;
+		}
+		global $wpdb;
+		$ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %d",
+				self::BOOK_META,
+				$book_id
+			)
+		);
+		foreach ( $ids as $id ) {
+			delete_post_meta( (int) $id, self::BOOK_META );
+		}
+		return count( $ids );
+	}
+
+	/**
+	 * How many chapters are not assigned to any book.
+	 */
+	public static function unassigned_chapter_count(): int {
+		global $wpdb;
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->posts} p
+				 LEFT JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = %s
+				 WHERE p.post_type = %s AND p.post_status NOT IN ( 'trash', 'auto-draft' )
+				 AND ( m.meta_id IS NULL OR m.meta_value = '' OR m.meta_value = '0' )",
+				self::BOOK_META,
+				Chapters::POST_TYPE
+			)
+		);
+	}
+
 	/**
 	 * The book Page ID a chapter belongs to (0 if unassigned).
 	 */
@@ -137,9 +195,15 @@ final class Books {
 			return [];
 		}
 
-		// Order by the book's title for a friendly dropdown / listing.
+		// Order by the book's title for a friendly dropdown / listing. Skip IDs
+		// whose Page no longer exists or is trashed, so a deleted book can't
+		// linger as a ghost (chapters may still carry stale meta).
 		$titles = [];
 		foreach ( $ids as $id ) {
+			$status = get_post_status( $id );
+			if ( ! $status || in_array( $status, [ 'trash', 'auto-draft' ], true ) ) {
+				continue;
+			}
 			$titles[ $id ] = get_the_title( $id );
 		}
 		asort( $titles, SORT_NATURAL | SORT_FLAG_CASE );

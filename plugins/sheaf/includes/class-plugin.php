@@ -26,6 +26,7 @@ final class Plugin {
 	 */
 	public function boot(): void {
 		Chapters::register();
+		Books::register();
 		Words::register();
 		Permalinks::register();
 		Frontend::register();
