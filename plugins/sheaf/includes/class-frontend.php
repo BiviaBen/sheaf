@@ -52,14 +52,76 @@ final class Frontend {
 	}
 
 	/**
-	 * Add a CSS hook when viewing a section divider, so it can be styled
-	 * differently from a normal chapter.
+	 * Add CSS hooks to a chapter's <body>: a section-divider marker plus classes
+	 * that map the chapter's place in the book/series hierarchy.
 	 */
 	public static function body_class( array $classes ): array {
-		if ( is_singular( Chapters::POST_TYPE ) && Chapters::is_section( (int) get_queried_object_id() ) ) {
+		if ( ! is_singular( Chapters::POST_TYPE ) ) {
+			return $classes;
+		}
+
+		$chapter_id = (int) get_queried_object_id();
+
+		if ( Chapters::is_section( $chapter_id ) ) {
 			$classes[] = 'sheaf-section';
 		}
-		return $classes;
+
+		return array_merge( $classes, self::hierarchy_classes( $chapter_id ) );
+	}
+
+	/**
+	 * Body classes that locate a chapter in the book/series hierarchy, so authors
+	 * can target CSS at a whole series, a single book, or one chapter. Two
+	 * flavours, because each covers the other's weakness:
+	 *
+	 *   - Readable cumulative path classes — "sheaf-novels",
+	 *     "sheaf-novels-long-war", "sheaf-novels-long-war-embers", and the
+	 *     chapter "sheaf-novels-long-war-embers-1-the-cold-road". Easy to read
+	 *     and author, but they change if a Page is renamed or moved.
+	 *   - Stable id classes — "sheaf-book-114", "sheaf-page-98",
+	 *     "sheaf-chapter-228" — which survive renames/moves but aren't readable.
+	 *
+	 * These are an authoring/override surface only; the named style sets emit
+	 * their own globally-keyed CSS independently of these classes.
+	 *
+	 * @return string[]
+	 */
+	private static function hierarchy_classes( int $chapter_id ): array {
+		$out     = [ 'sheaf-chapter-' . $chapter_id ];
+		$book_id = Books::get_book_id( $chapter_id );
+		if ( ! $book_id ) {
+			return $out;
+		}
+
+		// Stable id classes. "sheaf-book-<id>" marks the chapter's direct book.
+		// "sheaf-page-<id>" is emitted for the book *and* every ancestor, so a
+		// single id selector (e.g. a series Page's) targets everything at or
+		// below it — whether a chapter sits in that Page or in a child Book.
+		$out[] = 'sheaf-book-' . $book_id;
+		$out[] = 'sheaf-page-' . $book_id;
+		foreach ( Books::ancestors( $book_id ) as $ancestor ) {
+			$out[] = 'sheaf-page-' . (int) $ancestor->ID;
+		}
+
+		// Readable cumulative path: one class per ancestry level, then the chapter.
+		$uri = get_page_uri( $book_id );
+		if ( $uri ) {
+			$prefix = 'sheaf';
+			foreach ( explode( '/', $uri ) as $segment ) {
+				$segment = sanitize_html_class( $segment );
+				if ( '' === $segment ) {
+					continue;
+				}
+				$prefix .= '-' . $segment;
+				$out[]   = $prefix;
+			}
+			$slug = sanitize_html_class( (string) get_post_field( 'post_name', $chapter_id ) );
+			if ( '' !== $slug ) {
+				$out[] = $prefix . '-' . $slug;
+			}
+		}
+
+		return $out;
 	}
 
 	public static function toc_shortcode( $atts ): string {

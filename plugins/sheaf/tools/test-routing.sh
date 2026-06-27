@@ -75,6 +75,14 @@ check_contains "novels/gearfall/stormgear/prologue" "Stormgear" "breadcrumb name
 echo "Section view carries the CSS hook:"
 check_contains "novels/gearfall/mainspring/part-i-wind-up" "sheaf-section" "body class sheaf-section"
 
+echo "Hierarchy body classes on a chapter view (series/book/chapter targeting):"
+check_contains "novels/long-war/embers/1-the-cold-road" "sheaf-novels-long-war-embers-1-the-cold-road" "chapter-level path class"
+check_contains "novels/long-war/embers/1-the-cold-road" "sheaf-novels-long-war" "series-level path class"
+check_contains "novels/long-war/embers/1-the-cold-road" "sheaf-book-" "stable book-id class"
+check_contains "novels/long-war/embers/1-the-cold-road" "sheaf-chapter-" "stable chapter-id class"
+# A spin-off hung on the series Page is classed under that Page as its "book".
+check_contains "novels/long-war/a-candle-for-the-drowned" "sheaf-novels-long-war-a-candle-for-the-drowned" "series spin-off chapter class"
+
 echo "Series-level spin-off stories (a chapter hung directly on a Series Page):"
 check_status   "novels/long-war/a-candle-for-the-drowned" 200
 check_contains "novels/long-war/a-candle-for-the-drowned" "The Long War" "spin-off breadcrumbs to its series"
