@@ -171,7 +171,6 @@ final class Style_Sets_Admin {
 		self::styles();
 
 		self::render_list( $all, $selected );
-		self::render_add_set_form();
 
 		if ( '' !== $selected ) {
 			self::render_set_detail( $selected, (array) $all[ $selected ], $edit_style );
@@ -188,11 +187,6 @@ final class Style_Sets_Admin {
 	 */
 	private static function render_list( array $all, string $selected ): void {
 		echo '<h2>' . esc_html__( 'Style sets', 'sheaf' ) . '</h2>';
-
-		if ( ! $all ) {
-			echo '<p>' . esc_html__( 'No style sets yet — create one below.', 'sheaf' ) . '</p>';
-			return;
-		}
 
 		echo '<table class="wp-list-table widefat fixed striped"><thead><tr>';
 		echo '<th>' . esc_html__( 'Name', 'sheaf' ) . '</th>';
@@ -213,6 +207,15 @@ final class Style_Sets_Admin {
 			echo '<td>' . self::available_in( (string) $slug ) . '</td>'; // Links built/escaped within.
 			echo '</tr>';
 		}
+
+		// Final row: create a new set (the only row when none exist yet).
+		echo '<tr class="sheaf-add-row"><td colspan="4">';
+		self::open_form();
+		echo '<input type="hidden" name="op" value="save_set">';
+		echo '<input type="text" name="label" required class="regular-text" placeholder="' . esc_attr__( 'e.g. Strange Voices', 'sheaf' ) . '"> ';
+		submit_button( __( 'Create new set', 'sheaf' ), 'secondary', '', false );
+		echo '</form>';
+		echo '</td></tr>';
 
 		echo '</tbody></table>';
 	}
@@ -239,7 +242,7 @@ final class Style_Sets_Admin {
 			esc_html__( 'Rename', 'sheaf' )
 		);
 		echo '<span class="delete">';
-		self::open_form( 'display:inline', 'return confirm(\'' . esc_js( __( 'Delete this whole style set?', 'sheaf' ) ) . '\')' );
+		self::open_form( 'display:inline', 'return confirm(\'' . esc_js( __( 'Delete the whole style set? Related styles will become unformatted. This cannot be undone.', 'sheaf' ) ) . '\')' );
 		echo '<input type="hidden" name="op" value="delete_set">';
 		echo '<input type="hidden" name="set" value="' . esc_attr( $slug ) . '">';
 		echo '<button type="submit" class="button-link sheaf-link-danger">' . esc_html__( 'Delete', 'sheaf' ) . '</button>';
@@ -300,15 +303,6 @@ final class Style_Sets_Admin {
 			admin_url( 'edit.php' )
 		);
 		return '<a href="' . esc_url( $url ) . '">' . esc_html( get_the_title( $id ) ) . '</a>';
-	}
-
-	private static function render_add_set_form(): void {
-		echo '<h2>' . esc_html__( 'Add a new style set', 'sheaf' ) . '</h2>';
-		self::open_form();
-		echo '<input type="hidden" name="op" value="save_set">';
-		echo '<input type="text" name="label" required class="regular-text" placeholder="' . esc_attr__( 'e.g. Strange Voices', 'sheaf' ) . '"> ';
-		submit_button( __( 'Create set', 'sheaf' ), 'secondary', '', false );
-		echo '</form>';
 	}
 
 	/**
