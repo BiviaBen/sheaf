@@ -80,4 +80,22 @@ test.describe( 'Style sets — chapter editor', () => {
 			} )
 		).toBeVisible();
 	} );
+
+	test( 'reverting the book to the original clears the warning', async ( { page } ) => {
+		await openChapterEditor( page, fx.chapter );
+
+		const select = page.locator( '#sheaf-book-books' );
+		await expect( select ).toBeVisible();
+		const warning = page.locator( '.components-notice__content', {
+			hasText: /Save and reload to refresh the available styles/i,
+		} );
+
+		await select.selectOption( '0' );
+		await expect( warning ).toBeVisible();
+
+		// Selecting the chapter's original book back should remove the warning —
+		// the regression guard for the number-vs-string book-id comparison.
+		await select.selectOption( String( fx.book ) );
+		await expect( warning ).toHaveCount( 0 );
+	} );
 } );
