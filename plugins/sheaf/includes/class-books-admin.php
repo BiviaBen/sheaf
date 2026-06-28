@@ -22,9 +22,10 @@ final class Books_Admin {
 	/** Top-level menu slug; other Sheaf screens hang their submenus off it. */
 	public const MENU_SLUG = 'sheaf-books';
 
-	private const PAGE       = self::MENU_SLUG;
-	private const CAPABILITY = 'edit_posts';
-	private const NONCE      = 'sheaf_reorder';
+	private const PAGE        = self::MENU_SLUG;
+	private const CAPABILITY  = 'edit_posts';
+	private const NONCE       = 'sheaf_reorder';
+	private const STYLE_NONCE = 'sheaf_book_style_sets';
 
 	/** Hook suffix of our submenu page, for asset scoping. */
 	private static string $hook = '';
@@ -33,6 +34,7 @@ final class Books_Admin {
 		add_action( 'admin_menu', [ self::class, 'add_page' ] );
 		add_action( 'admin_enqueue_scripts', [ self::class, 'enqueue' ] );
 		add_action( 'wp_ajax_sheaf_reorder', [ self::class, 'ajax_reorder' ] );
+		add_action( 'admin_post_sheaf_book_style_sets', [ self::class, 'save_book_sets' ] );
 
 		// Keep the "Sheafs" menu open/highlighted on the (menu-hidden) chapter
 		// list and editor screens.
@@ -270,6 +272,11 @@ final class Books_Admin {
 	}
 
 	private static function render_book( int $book_id ): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only confirmation flag.
+		if ( isset( $_GET['sheaf_msg'] ) && 'sets-saved' === $_GET['sheaf_msg'] ) {
+			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Style sets updated.', 'sheaf' ) . '</p></div>';
+		}
+
 		$chapters = Books::get_chapters_for_admin( $book_id );
 		$back     = add_query_arg(
 			[
@@ -335,10 +342,103 @@ final class Books_Admin {
 		self::reorder_styles();
 		self::render_chapters_table( $book_id, $chapters );
 
+		self::render_style_sets( $book_id );
+
 		// Scaffold: room for future per-book settings (chapter-break layout,
 		// show-TOC-on-chapters, etc.). Intentionally not yet functional.
 		echo '<h2>' . esc_html__( 'Display settings', 'sheaf' ) . '</h2>';
 		echo '<p class="description">' . esc_html__( 'Per-book display settings (chapter breaks, table of contents on chapters, …) will live here.', 'sheaf' ) . '</p>';
+	}
+
+	/**
+	 * Per-book style-set activation: which sets the chapter editor and importer
+	 * offer for this book's chapters. Because the style CSS is global, toggling a
+	 * set here neither adds nor removes styling from chapters already written —
+	 * it only changes what is offered going forward.
+	 */
+	private static function render_style_sets( int $book_id ): void {
+		$all = Style_Sets::all();
+
+		echo '<h2>' . esc_html__( 'Style sets', 'sheaf' ) . '</h2>';
+
+		if ( ! $all ) {
+			printf(
+				'<p class="description">%s</p>',
+				wp_kses(
+					sprintf(
+						/* translators: %s: URL of the Style Sets screen. */
+						__( 'No style sets exist yet. <a href="%s">Create one</a> to offer named styles to this book.', 'sheaf' ),
+						esc_url( Style_Sets_Admin::url() )
+					),
+					[ 'a' => [ 'href' => [] ] ]
+				)
+			);
+			return;
+		}
+
+		$active = Style_Sets::active_sets( $book_id );
+
+		echo '<p class="description">' . esc_html__( 'Choose which style sets this book’s chapters may use. This controls what the editor and importer offer; it does not change styling already applied.', 'sheaf' ) . '</p>';
+
+		echo '<style>.sheaf-style-set-list{margin:.6em 0 1em}.sheaf-style-set-list li{margin:.25em 0}.sheaf-style-set-list .description{margin-left:.4em}</style>';
+
+		printf( '<form method="post" action="%s">', esc_url( admin_url( 'admin-post.php' ) ) );
+		wp_nonce_field( self::STYLE_NONCE );
+		echo '<input type="hidden" name="action" value="sheaf_book_style_sets">';
+		printf( '<input type="hidden" name="book" value="%d">', $book_id );
+
+		echo '<ul class="sheaf-style-set-list">';
+		foreach ( $all as $set => $data ) {
+			$label = '' !== (string) ( $data['label'] ?? '' ) ? (string) $data['label'] : (string) $set;
+			$count = count( (array) ( $data['styles'] ?? [] ) );
+			printf(
+				'<li><label><input type="checkbox" name="sheaf_sets[]" value="%1$s"%2$s> %3$s</label><span class="description">%4$s</span></li>',
+				esc_attr( (string) $set ),
+				checked( in_array( (string) $set, $active, true ), true, false ),
+				esc_html( $label ),
+				esc_html( sprintf( /* translators: %s: number of styles in the set. */ _n( '%s style', '%s styles', $count, 'sheaf' ), number_format_i18n( $count ) ) )
+			);
+		}
+		echo '</ul>';
+
+		submit_button( __( 'Save style sets', 'sheaf' ) );
+		echo '</form>';
+	}
+
+	/**
+	 * Save a book's active style sets (post/redirect/get), keeping only sets that
+	 * still exist in the library.
+	 */
+	public static function save_book_sets(): void {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_die( esc_html__( 'You are not allowed to manage books.', 'sheaf' ) );
+		}
+		check_admin_referer( self::STYLE_NONCE );
+
+		$book_id = isset( $_POST['book'] ) ? absint( $_POST['book'] ) : 0;
+		$chosen  = isset( $_POST['sheaf_sets'] ) ? array_map( 'sanitize_key', (array) wp_unslash( $_POST['sheaf_sets'] ) ) : [];
+		$chosen  = array_values( array_intersect( $chosen, array_keys( Style_Sets::all() ) ) );
+
+		if ( $book_id ) {
+			if ( $chosen ) {
+				update_post_meta( $book_id, Style_Sets::BOOK_META, $chosen );
+			} else {
+				delete_post_meta( $book_id, Style_Sets::BOOK_META );
+			}
+		}
+
+		wp_safe_redirect(
+			add_query_arg(
+				[
+					'post_type' => Chapters::POST_TYPE,
+					'page'      => self::PAGE,
+					'book'      => $book_id,
+					'sheaf_msg' => 'sets-saved',
+				],
+				admin_url( 'edit.php' )
+			)
+		);
+		exit;
 	}
 
 	/**

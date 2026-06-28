@@ -26,6 +26,7 @@ final class Frontend {
 		add_filter( 'the_content', [ self::class, 'auto_breadcrumbs' ], 9 );
 		add_filter( 'the_content', [ self::class, 'auto_chapter_nav' ], 11 );
 		add_filter( 'body_class', [ self::class, 'body_class' ] );
+		add_action( 'wp_head', [ self::class, 'print_style_css' ], 20 );
 
 		// Themes navigate chapters by post date (a "previous"/"next" chapter from
 		// some other book). Reading order is by book + menu_order, so suppress the
@@ -122,6 +123,51 @@ final class Frontend {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Emit the whole style-set library as one global <style> block in the head.
+	 *
+	 * The CSS is keyed on each style's class alone (Style_Sets::style_class), so
+	 * a class means the same thing wherever it appears — per-book activation
+	 * governs what the editor and importer OFFER, not what is styled here. That
+	 * is also why this prints on every front-end view rather than only on
+	 * chapters: styled text can surface anywhere (an excerpt, a widget). v1
+	 * prints inline; the identical rules can later become a single cacheable
+	 * stylesheet without changing their meaning.
+	 */
+	public static function print_style_css(): void {
+		if ( is_admin() ) {
+			return;
+		}
+		$css = self::style_css();
+		if ( '' === $css ) {
+			return;
+		}
+		// Class names come from sanitize_title and the declarations are sanitised
+		// at the source (Style_Sets::sanitize_props/sanitize_raw_css strip tags,
+		// braces and angle brackets) — that is the boundary that makes this safe
+		// to print raw. Escaping here would corrupt valid CSS such as quoted
+		// font-family names.
+		echo "<style id=\"sheaf-style-sets\">\n" . $css . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+	}
+
+	/**
+	 * Build the style-set CSS: one rule per style across the whole library,
+	 * skipping styles whose definition is empty.
+	 */
+	public static function style_css(): string {
+		$rules = '';
+		foreach ( Style_Sets::all() as $set => $data ) {
+			foreach ( (array) ( $data['styles'] ?? [] ) as $style => $def ) {
+				$decls = Style_Sets::declarations( (array) $def );
+				if ( '' === $decls ) {
+					continue;
+				}
+				$rules .= '.' . Style_Sets::style_class( (string) $set, (string) $style ) . ' { ' . $decls . " }\n";
+			}
+		}
+		return $rules;
 	}
 
 	public static function toc_shortcode( $atts ): string {
