@@ -2,8 +2,10 @@
  * Editor integration for style sets (no build step; uses the wp.* globals).
  *
  * Turns a chapter's active style sets into editor controls:
- *   - inline styles -> rich-text formats (toolbar buttons, like bold), wrapping
- *     the selection in a <span> carrying the style's class;
+ *   - inline styles -> rich-text formats wrapping the selection in a <span> with
+ *     the style's class. Rather than scattering one toolbar button per style
+ *     through the built-in formatting menu, they are gathered into a single
+ *     dedicated "Styles" dropdown in the inline toolbar.
  *   - block styles  -> paragraph block-style variations (WordPress applies an
  *     "is-style-<name>" class to the block).
  *
@@ -15,34 +17,73 @@
 	'use strict';
 
 	var data = window.SheafStyles || {};
+	var i18n = data.i18n || {};
 	var el = wp.element.createElement;
 	var registerFormatType = wp.richText.registerFormatType;
 	var toggleFormat = wp.richText.toggleFormat;
-	var RichTextToolbarButton = wp.blockEditor.RichTextToolbarButton;
+	var getActiveFormat = wp.richText.getActiveFormat;
 	var registerBlockStyle = wp.blocks.registerBlockStyle;
+	var BlockControls = wp.blockEditor.BlockControls;
+	var ToolbarGroup = wp.components.ToolbarGroup;
+	var ToolbarDropdownMenu = wp.components.ToolbarDropdownMenu;
 
-	( data.styles || [] ).forEach( function ( s ) {
+	var all = data.styles || [];
+	var inlineStyles = all.filter( function ( s ) {
+		return 'block' !== s.kind;
+	} );
+
+	// Block styles: paragraph variations.
+	all.forEach( function ( s ) {
 		if ( 'block' === s.kind ) {
 			registerBlockStyle( 'core/paragraph', { name: s.blockName, label: s.title } );
-			return;
 		}
+	} );
 
+	// Inline styles: register each as a format (so it applies/detects), but with
+	// no edit — no per-style button in the built-in menu.
+	inlineStyles.forEach( function ( s ) {
 		registerFormatType( s.name, {
 			title: s.title,
 			tagName: 'span',
 			className: s.class,
-			edit: function ( props ) {
-				return el( RichTextToolbarButton, {
-					icon: 'editor-textcolor',
-					title: s.title,
-					isActive: props.isActive,
-					onClick: function () {
-						props.onChange( toggleFormat( props.value, { type: s.name } ) );
-					},
-				} );
-			},
 		} );
 	} );
+
+	// One dedicated "Styles" dropdown in the inline toolbar, listing them all and
+	// kept separate from the built-in formats. Hosted by a control-only format
+	// type (never applied itself).
+	if ( inlineStyles.length ) {
+		registerFormatType( 'sheaf/styles-menu', {
+			title: i18n.stylesLabel || 'Styles',
+			tagName: 'span',
+			className: 'sheaf-styles-menu',
+			edit: function ( props ) {
+				var controls = inlineStyles.map( function ( s ) {
+					return {
+						title: s.title,
+						isActive: !! getActiveFormat( props.value, s.name ),
+						onClick: function () {
+							props.onChange( toggleFormat( props.value, { type: s.name } ) );
+						},
+					};
+				} );
+				return el(
+					BlockControls,
+					{ group: 'inline' },
+					el(
+						ToolbarGroup,
+						null,
+						el( ToolbarDropdownMenu, {
+							icon: 'editor-textcolor',
+							text: i18n.stylesLabel || 'Styles',
+							label: i18n.stylesLabel || 'Styles',
+							controls: controls,
+						} )
+					)
+				);
+			},
+		} );
+	}
 
 	// Warn (without auto-reloading) when the author changes the chapter's book:
 	// the style list above was built from the book at load time.

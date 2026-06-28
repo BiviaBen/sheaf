@@ -62,7 +62,7 @@ final class Style_Sets_Editor {
 		wp_enqueue_script(
 			'sheaf-editor-styles',
 			SHEAF_URL . 'assets/editor-styles.js',
-			[ 'wp-rich-text', 'wp-block-editor', 'wp-blocks', 'wp-element', 'wp-i18n', 'wp-data', 'wp-dom-ready' ],
+			[ 'wp-rich-text', 'wp-block-editor', 'wp-blocks', 'wp-element', 'wp-components', 'wp-i18n', 'wp-data', 'wp-dom-ready' ],
 			$ver,
 			true
 		);
@@ -74,6 +74,7 @@ final class Style_Sets_Editor {
 				'styles' => self::styles_for_book( $book_id ),
 				'i18n'   => [
 					'bookChanged' => __( 'You changed this chapter’s book. Save and reload to refresh the available styles.', 'sheaf' ),
+					'stylesLabel' => __( 'Styles', 'sheaf' ),
 				],
 			]
 		);
