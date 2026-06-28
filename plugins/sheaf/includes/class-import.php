@@ -287,17 +287,133 @@ final class Import {
 	}
 
 	/**
-	 * Read settings from a submitted form.
+	 * Read settings from a submitted form, including the Word-style mappings
+	 * (validated against the target book's active style-set styles).
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function settings_from_request(): array {
+	private static function settings_from_request( int $book ): array {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce checked by the caller.
 		$raw = isset( $_POST['settings'] ) && is_array( $_POST['settings'] )
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			? array_map( 'sanitize_text_field', wp_unslash( $_POST['settings'] ) )
 			: [];
-		return Import_Serializer::sanitize_settings( $raw );
+		$settings = Import_Serializer::sanitize_settings( $raw );
+
+		$options                      = self::style_options( $book );
+		$settings['style_map']        = self::read_style_map( 'char_map', $options['inline'] );
+		$settings['block_style_map']  = self::read_style_map( 'para_map', $options['block'] );
+		return $settings;
+	}
+
+	/**
+	 * Read a Word-style => CSS-class map from the request, keeping only classes
+	 * that belong to the book's active styles (so a forged class can't slip in).
+	 *
+	 * @param array<int,array<string,string>> $options Allowed style options.
+	 * @return array<string,string>
+	 */
+	private static function read_style_map( string $field, array $options ): array {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce checked by the caller.
+		$raw = isset( $_POST[ $field ] ) && is_array( $_POST[ $field ] )
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing
+			? (array) wp_unslash( $_POST[ $field ] )
+			: [];
+
+		$allowed = [];
+		foreach ( $options as $opt ) {
+			$allowed[ $opt['class'] ] = true;
+		}
+
+		$map = [];
+		foreach ( $raw as $word_style => $class ) {
+			$class = sanitize_html_class( (string) $class );
+			if ( '' !== $class && isset( $allowed[ $class ] ) ) {
+				$map[ (string) $word_style ] = $class;
+			}
+		}
+		return $map;
+	}
+
+	/**
+	 * The style-set styles a book activates, split by kind, as mapping options:
+	 * inline styles (for Word character styles) and block styles (for Word
+	 * paragraph styles). Each option carries the CSS class the content will
+	 * receive plus labels for the dropdown.
+	 *
+	 * @return array{inline:array<int,array<string,string>>,block:array<int,array<string,string>>}
+	 */
+	private static function style_options( int $book ): array {
+		$out = [
+			'inline' => [],
+			'block'  => [],
+		];
+		foreach ( Style_Sets::active_sets( $book ) as $set ) {
+			$set_data = Style_Sets::get_set( $set );
+			if ( ! $set_data ) {
+				continue;
+			}
+			$set_label = '' !== (string) ( $set_data['label'] ?? '' ) ? (string) $set_data['label'] : (string) $set;
+			foreach ( (array) ( $set_data['styles'] ?? [] ) as $style => $def ) {
+				$kind  = in_array( $def['kind'] ?? 'inline', Style_Sets::KINDS, true ) ? (string) $def['kind'] : 'inline';
+				$label = '' !== (string) ( $def['label'] ?? '' ) ? (string) $def['label'] : (string) $style;
+				$out[ 'block' === $kind ? 'block' : 'inline' ][] = [
+					'class' => Style_Sets::css_class( (string) $set, (string) $style, $kind ),
+					'label' => $label,
+					'set'   => $set_label,
+				];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Distinct Word styles used across the parsed entries, with occurrence
+	 * counts: character styles (on runs) and paragraph styles (on plain
+	 * paragraphs). Structural styles already consumed as headings/quotes are
+	 * not offered.
+	 *
+	 * @param array<int,array<string,mixed>> $entries
+	 * @return array{char:array<string,int>,para:array<string,int>}
+	 */
+	private static function collect_styles( array $entries ): array {
+		$char = [];
+		$para = [];
+		foreach ( $entries as $entry ) {
+			if ( '' !== (string) ( $entry['error'] ?? '' ) ) {
+				continue;
+			}
+			foreach ( (array) ( $entry['blocks'] ?? [] ) as $block ) {
+				if ( 'paragraph' === ( $block['type'] ?? '' ) && '' !== (string) ( $block['style'] ?? '' ) ) {
+					$name          = (string) $block['style'];
+					$para[ $name ] = ( $para[ $name ] ?? 0 ) + 1;
+				}
+
+				$run_groups = [];
+				if ( isset( $block['runs'] ) ) {
+					$run_groups[] = $block['runs'];
+				}
+				if ( isset( $block['items'] ) ) {
+					foreach ( $block['items'] as $item ) {
+						$run_groups[] = $item;
+					}
+				}
+				foreach ( $run_groups as $runs ) {
+					foreach ( (array) $runs as $run ) {
+						$s = (string) ( $run['style'] ?? '' );
+						if ( '' !== $s ) {
+							$char[ $s ] = ( $char[ $s ] ?? 0 ) + 1;
+						}
+					}
+				}
+			}
+		}
+		ksort( $char );
+		ksort( $para );
+		return [
+			'char' => $char,
+			'para' => $para,
+		];
 	}
 
 	/**
@@ -310,7 +426,7 @@ final class Import {
 		}
 
 		$book     = isset( $_POST['sheaf_book'] ) ? absint( $_POST['sheaf_book'] ) : 0;
-		$settings = self::settings_from_request();
+		$settings = self::settings_from_request( $book );
 		$files    = self::normalize_files();
 
 		$entries = [];
@@ -495,6 +611,8 @@ final class Import {
 		echo '<h2>' . esc_html__( 'Keep formatting', 'sheaf' ) . '</h2>';
 		self::settings_fields( $settings );
 
+		self::render_style_mapping( $book, $entries, $settings );
+
 		echo '<p class="submit">';
 		printf(
 			'<button type="submit" name="sheaf_action" value="preview" class="button">%s</button> ',
@@ -547,6 +665,99 @@ final class Import {
 	}
 
 	/**
+	 * The "Word styles" section of the preview: map each named Word style found
+	 * in the uploaded files to one of the target book's active style-set styles
+	 * (or leave it ignored). Character styles map to inline styles, paragraph
+	 * styles to block styles.
+	 *
+	 * @param array<int,array<string,mixed>> $entries
+	 * @param array<string,mixed>            $settings
+	 */
+	private static function render_style_mapping( int $book, array $entries, array $settings ): void {
+		$detected = self::collect_styles( $entries );
+		if ( ! $detected['char'] && ! $detected['para'] ) {
+			return; // No named Word styles to map.
+		}
+
+		echo '<h2>' . esc_html__( 'Word styles', 'sheaf' ) . '</h2>';
+
+		$options = self::style_options( $book );
+		if ( ! $options['inline'] && ! $options['block'] ) {
+			$message = __( 'Named Word styles were found, but this book has no active style sets to map them to. Activate style sets on the book’s screen, then re-import.', 'sheaf' );
+			if ( $book ) {
+				$book_url = add_query_arg(
+					[
+						'post_type' => Chapters::POST_TYPE,
+						'page'      => Books_Admin::MENU_SLUG,
+						'book'      => $book,
+					],
+					admin_url( 'edit.php' )
+				);
+				printf(
+					'<p class="description">%1$s <a href="%2$s">%3$s</a></p>',
+					esc_html( $message ),
+					esc_url( $book_url ),
+					esc_html__( 'Open the book’s screen', 'sheaf' )
+				);
+			} else {
+				printf( '<p class="description">%s</p>', esc_html( $message ) );
+			}
+			return;
+		}
+
+		echo '<p class="description">' . esc_html__( 'Map named Word styles found in these files to your style-set styles. Unmapped styles are imported as plain text.', 'sheaf' ) . '</p>';
+
+		echo '<table class="wp-list-table widefat fixed striped"><thead><tr>';
+		echo '<th>' . esc_html__( 'Word style', 'sheaf' ) . '</th>';
+		echo '<th style="width:7em">' . esc_html__( 'Uses', 'sheaf' ) . '</th>';
+		echo '<th>' . esc_html__( 'Maps to', 'sheaf' ) . '</th>';
+		echo '</tr></thead><tbody>';
+
+		self::mapping_rows( __( 'Character styles', 'sheaf' ), $detected['char'], 'char_map', $options['inline'], (array) ( $settings['style_map'] ?? [] ) );
+		self::mapping_rows( __( 'Paragraph styles', 'sheaf' ), $detected['para'], 'para_map', $options['block'], (array) ( $settings['block_style_map'] ?? [] ) );
+
+		echo '</tbody></table>';
+	}
+
+	/**
+	 * One sub-group of the Word-style mapping table.
+	 *
+	 * @param array<string,int>               $detected Word style name => uses.
+	 * @param array<int,array<string,string>> $options  Allowed target styles.
+	 * @param array<string,string>            $current  Word style name => class.
+	 */
+	private static function mapping_rows( string $heading, array $detected, string $field, array $options, array $current ): void {
+		if ( ! $detected ) {
+			return;
+		}
+		printf( '<tr><th colspan="3" scope="rowgroup">%s</th></tr>', esc_html( $heading ) );
+
+		foreach ( $detected as $name => $count ) {
+			echo '<tr>';
+			printf( '<td><code>%s</code></td>', esc_html( $name ) );
+			printf( '<td>%s</td>', esc_html( number_format_i18n( $count ) ) );
+			echo '<td>';
+			if ( ! $options ) {
+				echo '<span class="description">' . esc_html__( 'No matching styles available.', 'sheaf' ) . '</span>';
+			} else {
+				$selected = (string) ( $current[ $name ] ?? '' );
+				printf( '<select name="%1$s[%2$s]">', esc_attr( $field ), esc_attr( (string) $name ) );
+				printf( '<option value="">%s</option>', esc_html__( '— Ignore —', 'sheaf' ) );
+				foreach ( $options as $opt ) {
+					printf(
+						'<option value="%1$s"%2$s>%3$s</option>',
+						esc_attr( $opt['class'] ),
+						selected( $selected, $opt['class'], false ),
+						esc_html( $opt['set'] . ' › ' . $opt['label'] )
+					);
+				}
+				echo '</select>';
+			}
+			echo '</td></tr>';
+		}
+	}
+
+	/**
 	 * Handle the preview form: update settings/titles, or create the drafts.
 	 */
 	public static function handle_create(): void {
@@ -564,7 +775,7 @@ final class Import {
 		}
 
 		// Fold the submitted settings and edited titles back into the session.
-		$data['settings'] = self::settings_from_request();
+		$data['settings'] = self::settings_from_request( (int) $data['book'] );
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified above.
 		$titles = isset( $_POST['titles'] ) && is_array( $_POST['titles'] )
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing

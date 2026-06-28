@@ -36,9 +36,12 @@ final class Import_Serializer {
 			'keep_blockquote' => true,
 			'keep_links'      => true,
 			'scene_breaks'    => true,
-			// Reserved: Word character-style name => CSS class for a semantic
-			// <span>. Empty in v1; wired through render_run() for the future.
+			// Word character-style name => CSS class for an inline <span>
+			// (an inline style-set style). Applied per run in render_runs().
 			'style_map'       => [],
+			// Word paragraph-style name => CSS class for a paragraph block
+			// (a block style-set style). Applied per block in render_block().
+			'block_style_map' => [],
 		];
 	}
 
@@ -52,7 +55,7 @@ final class Import_Serializer {
 		$defaults = self::default_settings();
 		$out      = [];
 		foreach ( $defaults as $key => $default ) {
-			if ( 'style_map' === $key ) {
+			if ( 'style_map' === $key || 'block_style_map' === $key ) {
 				$out[ $key ] = is_array( $raw[ $key ] ?? null ) ? array_map( 'sanitize_html_class', $raw[ $key ] ) : [];
 				continue;
 			}
@@ -146,12 +149,19 @@ final class Import_Serializer {
 				if ( '' === trim( wp_strip_all_tags( $inline ) ) ) {
 					return '';
 				}
-				return self::wrap_paragraph( $inline );
+				// A mapped Word paragraph style becomes a paragraph block-style
+				// class (e.g. "is-style-sheaf-…").
+				$class = (string) ( $settings['block_style_map'][ $block['style'] ?? '' ] ?? '' );
+				return self::wrap_paragraph( $inline, $class );
 		}
 	}
 
-	private static function wrap_paragraph( string $inline ): string {
-		return "<!-- wp:paragraph -->\n<p>" . $inline . "</p>\n<!-- /wp:paragraph -->";
+	private static function wrap_paragraph( string $inline, string $class = '' ): string {
+		if ( '' === $class ) {
+			return "<!-- wp:paragraph -->\n<p>" . $inline . "</p>\n<!-- /wp:paragraph -->";
+		}
+		$attrs = (string) wp_json_encode( [ 'className' => $class ] );
+		return "<!-- wp:paragraph {$attrs} -->\n<p class=\"" . esc_attr( $class ) . "\">" . $inline . "</p>\n<!-- /wp:paragraph -->";
 	}
 
 	private static function render_list( array $block, array $settings ): string {
