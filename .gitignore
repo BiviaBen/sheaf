@@ -11,6 +11,13 @@ build/
 !plugins/sheaf/lib/plugin-update-checker/vendor/
 !plugins/sheaf/lib/plugin-update-checker/vendor/**
 
+# Playwright E2E (browsers, reports, saved auth — all regenerated)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+tests/e2e/.auth/
+
 # Logs & OS/editor cruft
 *.log
 .DS_Store
