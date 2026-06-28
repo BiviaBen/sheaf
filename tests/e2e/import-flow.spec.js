@@ -33,8 +33,8 @@ test( 'upload → create a set from found Word styles → create a draft', async
 	} );
 	await page.getByRole( 'button', { name: /Upload and preview/i } ).click();
 
-	// Preview: found Word styles + the create-new-set field (book has no sets).
-	await expect( page.getByRole( 'heading', { name: 'Word styles' } ) ).toBeVisible();
+	// Preview: found custom styles + the create-new-set field (book has no sets).
+	await expect( page.getByRole( 'heading', { name: 'Custom styles' } ) ).toBeVisible();
 	await expect( page.getByText( 'ComputerVoice' ) ).toBeVisible();
 	await expect( page.getByText( 'Verse', { exact: true } ) ).toBeVisible();
 	await page.locator( 'input[name="new_set"]' ).fill( 'E2E Imported Set' );
