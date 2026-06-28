@@ -33,6 +33,7 @@ final class Plugin {
 		Blocks::register();
 		Admin::register();
 		Books_Admin::register();
+		Style_Sets_Admin::register();
 		Import::register();
 	}
 
