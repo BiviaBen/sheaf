@@ -139,6 +139,36 @@ try {
 	$check( ! isset( $found['para']['Ignored'] ), 'collect_styles skips errored entries' );
 	$check( 2 === ( $found['char']['ComputerVoice'] ?? 0 ), 'collect_styles counts character style across runs + list items (2)' );
 
+	/* ---- collect_direct: clusters ad-hoc formatting ----------------------- */
+
+	$collect_d = $private( '\Sheaf\Import', 'collect_direct' );
+	$d_entries = [
+		[
+			'error'  => '',
+			'blocks' => [
+				[
+					'type'  => 'paragraph',
+					'style' => '',
+					'runs'  => [
+						[ 'text' => 'first', 'style' => '', 'direct' => [ 'font-family' => 'Courier New', 'font-size' => '10pt' ] ],
+						[ 'text' => 'second', 'style' => '', 'direct' => [ 'font-size' => '10pt', 'font-family' => 'Courier New' ] ], // same signature
+						[ 'text' => 'named', 'style' => 'Emphasis', 'direct' => [ 'color' => '#ff0000' ] ], // has a named style -> excluded
+						[ 'text' => 'plain', 'style' => '', 'direct' => [] ], // no direct -> excluded
+					],
+				],
+			],
+		],
+	];
+	$clusters = $collect_d->invoke( null, $d_entries );
+	$check( 1 === count( $clusters ), 'collect_direct groups identical direct formatting into one cluster' );
+	$cluster = reset( $clusters );
+	$check( 2 === $cluster['count'], 'cluster counts both runs' );
+	$check( 'font-family:Courier New;font-size:10pt' === $cluster['signature'], 'cluster signature is canonical' );
+	$check( 'first' === $cluster['sample'], 'cluster keeps a sample of the text' );
+
+	$describe = $private( '\Sheaf\Import', 'describe_direct' );
+	$check( 'Courier New, 10pt, #00b050' === $describe->invoke( null, [ 'font-family' => 'Courier New', 'font-size' => '10pt', 'color' => '#00b050' ] ), 'describe_direct gives a readable label' );
+
 	/* ---- read_choices: validates classes and new:<set> directives --------- */
 
 	$_POST['char_map'] = [

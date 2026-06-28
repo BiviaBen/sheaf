@@ -272,7 +272,8 @@ final class Import {
 			'keep_blockquote' => __( 'Block quotes', 'sheaf' ),
 			'keep_links'        => __( 'Links', 'sheaf' ),
 			'scene_breaks'      => __( 'Scene breaks (e.g. “* * *”) as separators', 'sheaf' ),
-			'keep_named_styles' => __( 'Named custom styles and formatting', 'sheaf' ),
+			'keep_named_styles'   => __( 'Named custom styles and formatting', 'sheaf' ),
+			'keep_unnamed_styles' => __( 'Ad hoc/unnamed custom styles and formatting', 'sheaf' ),
 		];
 		echo '<fieldset>';
 		foreach ( $fields as $key => $label ) {
@@ -460,6 +461,93 @@ final class Import {
 			'char' => $char,
 			'para' => $para,
 		];
+	}
+
+	/**
+	 * Cluster ad-hoc/unnamed (direct) run formatting across the parsed entries.
+	 * Runs that carry direct formatting but no named character style are grouped
+	 * by their canonical signature; each cluster keeps a stable id, the props, an
+	 * occurrence count and a sample of the affected text. Ordered by count.
+	 *
+	 * @param array<int,array<string,mixed>> $entries
+	 * @return array<string,array<string,mixed>> id => cluster
+	 */
+	private static function collect_direct( array $entries ): array {
+		$clusters = [];
+		foreach ( $entries as $entry ) {
+			if ( '' !== (string) ( $entry['error'] ?? '' ) ) {
+				continue;
+			}
+			foreach ( (array) ( $entry['blocks'] ?? [] ) as $block ) {
+				$groups = [];
+				if ( isset( $block['runs'] ) ) {
+					$groups[] = $block['runs'];
+				}
+				if ( isset( $block['items'] ) ) {
+					foreach ( $block['items'] as $item ) {
+						$groups[] = $item;
+					}
+				}
+				foreach ( $groups as $runs ) {
+					foreach ( (array) $runs as $run ) {
+						$direct = (array) ( $run['direct'] ?? [] );
+						// Only pure direct formatting — named styles are handled elsewhere.
+						if ( ! $direct || '' !== (string) ( $run['style'] ?? '' ) ) {
+							continue;
+						}
+						$signature = Import_Serializer::direct_signature( $direct );
+						if ( '' === $signature ) {
+							continue;
+						}
+						$id = substr( md5( $signature ), 0, 12 );
+						if ( ! isset( $clusters[ $id ] ) ) {
+							$clusters[ $id ] = [
+								'id'        => $id,
+								'signature' => $signature,
+								'props'     => $direct,
+								'count'     => 0,
+								'sample'    => '',
+							];
+						}
+						++$clusters[ $id ]['count'];
+						$text = trim( (string) $run['text'] );
+						if ( '' === $clusters[ $id ]['sample'] && '' !== $text ) {
+							$clusters[ $id ]['sample'] = mb_substr( $text, 0, 60 );
+						}
+					}
+				}
+			}
+		}
+
+		uasort(
+			$clusters,
+			static function ( $a, $b ) {
+				return $b['count'] <=> $a['count'];
+			}
+		);
+		return $clusters;
+	}
+
+	/**
+	 * A human-readable description of a direct-formatting cluster's props, used as
+	 * a label and as the name when the cluster becomes a new style.
+	 *
+	 * @param array<string,string> $props
+	 */
+	private static function describe_direct( array $props ): string {
+		$order = [ 'font-family', 'font-size', 'font-weight', 'font-style', 'color', 'background-color' ];
+		$parts = [];
+		foreach ( $order as $key ) {
+			if ( ! empty( $props[ $key ] ) ) {
+				$parts[] = (string) $props[ $key ];
+			}
+		}
+		foreach ( $props as $key => $value ) {
+			if ( ! in_array( $key, $order, true ) && '' !== (string) $value ) {
+				$parts[] = (string) $value;
+			}
+		}
+		return $parts ? implode( ', ', $parts ) : __( 'Plain text', 'sheaf' );
 	}
 
 	/**
