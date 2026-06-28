@@ -28,13 +28,17 @@ final class Style_Sets_Admin {
 	private const SAMPLE_INLINE = 'The quick brown fox jumps over';
 	private const SAMPLE_BLOCK  = 'The quick brown fox jumps over the lazy dog, then pauses to watch the curious cat slip past.';
 
+	/** Hook suffix of our screen, for asset scoping. */
+	private static string $hook = '';
+
 	public static function register(): void {
 		add_action( 'admin_menu', [ self::class, 'add_page' ] );
 		add_action( 'admin_post_' . self::ACTION, [ self::class, 'handle' ] );
+		add_action( 'admin_enqueue_scripts', [ self::class, 'enqueue' ] );
 	}
 
 	public static function add_page(): void {
-		add_submenu_page(
+		self::$hook = (string) add_submenu_page(
 			Books_Admin::MENU_SLUG,
 			__( 'Style Sets', 'sheaf' ),
 			__( 'Style Sets', 'sheaf' ),
@@ -42,6 +46,22 @@ final class Style_Sets_Admin {
 			self::PAGE,
 			[ self::class, 'render' ],
 			1 // Second item, right under "Books".
+		);
+	}
+
+	/** Load the live-preview script only on this screen. */
+	public static function enqueue( string $hook ): void {
+		if ( $hook !== self::$hook ) {
+			return;
+		}
+		$asset = SHEAF_DIR . 'assets/admin-style-preview.js';
+		$ver   = file_exists( $asset ) ? (string) filemtime( $asset ) : SHEAF_VERSION;
+		wp_enqueue_script(
+			'sheaf-style-preview',
+			SHEAF_URL . 'assets/admin-style-preview.js',
+			[],
+			$ver,
+			true
 		);
 	}
 
@@ -399,6 +419,9 @@ final class Style_Sets_Admin {
 
 		echo '</tbody></table>';
 
+		// Live preview target — filled and updated by admin-style-preview.js.
+		echo '<div class="sheaf-live-preview"><p class="description">' . esc_html__( 'Live preview', 'sheaf' ) . '</p><div class="sheaf-live-target"></div></div>';
+
 		submit_button( '' === $style_slug ? __( 'Add style', 'sheaf' ) : __( 'Save style', 'sheaf' ), 'primary', '', false );
 		if ( '' !== $style_slug ) {
 			echo ' <a class="button-link" href="' . esc_url( self::url( [ 'set' => $set ] ) . '#sheaf-set-detail' ) . '">' . esc_html__( 'Cancel', 'sheaf' ) . '</a>';
@@ -461,6 +484,8 @@ final class Style_Sets_Admin {
 			.sheaf-prev{max-width:40em;margin:0}
 			.sheaf-prev-actual{margin:0}
 			.sheaf-prev-rep{margin:0;height:1.1em;border-radius:2px;background:repeating-linear-gradient(45deg,#f6f7f7,#f6f7f7 6px,#eceef0 6px,#eceef0 12px)}
+			.sheaf-live-preview{margin:0 0 1em;padding:.6em .8em;border:1px solid #dcdcde;border-radius:4px;background:#fff;max-width:42em}
+			.sheaf-live-preview>.description{margin:0 0 .4em}
 		</style>';
 	}
 }
