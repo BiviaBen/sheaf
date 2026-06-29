@@ -115,23 +115,199 @@ final class Fonts {
 		}
 		$css = '';
 		foreach ( self::referenced() as $key => $name ) {
-			if ( ! isset( $installed[ $key ] ) ) {
-				continue;
-			}
-			$family = str_replace( '"', '', $installed[ $key ]['name'] );
-			foreach ( $installed[ $key ]['faces'] as $face ) {
-				$weight = preg_replace( '/[^0-9a-z ]/i', '', $face['weight'] );
-				$style  = preg_replace( '/[^a-z]/i', '', $face['style'] );
-				$src    = esc_url_raw( $face['src'] );
-				if ( '' === $src ) {
-					continue;
-				}
-				$format = self::format_hint( $src );
-				$css   .= '@font-face{font-family:"' . $family . '";font-style:' . ( $style ?: 'normal' ) . ';font-weight:' . ( $weight ?: '400' ) . ';font-display:swap;src:url(' . $src . ')'
-					. ( '' !== $format ? ' format("' . $format . '")' : '' ) . "}\n";
+			if ( isset( $installed[ $key ] ) ) {
+				$css .= self::faces_css( $installed[ $key ]['name'], $installed[ $key ]['faces'] );
 			}
 		}
 		return $css;
+	}
+
+	/** @font-face for one installed family (e.g. to inject after embedding). */
+	public static function face_css( string $name ): string {
+		$installed = self::installed();
+		$key       = self::normalize( $name );
+		return isset( $installed[ $key ] )
+			? self::faces_css( $installed[ $key ]['name'], $installed[ $key ]['faces'] )
+			: '';
+	}
+
+	/**
+	 * @font-face declarations for one family's faces.
+	 *
+	 * @param array<int,array{src:string,weight:string,style:string}> $faces
+	 */
+	private static function faces_css( string $name, array $faces ): string {
+		$family = str_replace( '"', '', $name );
+		$css    = '';
+		foreach ( $faces as $face ) {
+			$weight = preg_replace( '/[^0-9a-z ]/i', '', (string) $face['weight'] );
+			$style  = preg_replace( '/[^a-z]/i', '', (string) $face['style'] );
+			$src    = esc_url_raw( (string) $face['src'] );
+			if ( '' === $src ) {
+				continue;
+			}
+			$format = self::format_hint( $src );
+			$css   .= '@font-face{font-family:"' . $family . '";font-style:' . ( $style ?: 'normal' ) . ';font-weight:' . ( $weight ?: '400' ) . ';font-display:swap;src:url(' . $src . ')'
+				. ( '' !== $format ? ' format("' . $format . '")' : '' ) . "}\n";
+		}
+		return $css;
+	}
+
+	/**
+	 * The bundled Google Fonts collection as a name-keyed catalog (cached per
+	 * request), each entry carrying its remote faces. Empty if unavailable.
+	 *
+	 * @return array<string,array{name:string,faces:array<int,array{src:string,weight:string,style:string}>}>
+	 */
+	public static function catalog(): array {
+		static $cache = null;
+		if ( null !== $cache ) {
+			return $cache;
+		}
+		$cache = [];
+		if ( ! class_exists( '\WP_Font_Library' ) ) {
+			return $cache;
+		}
+		$library = \WP_Font_Library::get_instance();
+		if ( ! method_exists( $library, 'get_font_collection' ) ) {
+			return $cache;
+		}
+		$collection = $library->get_font_collection( 'google-fonts' );
+		if ( ! $collection || is_wp_error( $collection ) || ! method_exists( $collection, 'get_data' ) ) {
+			return $cache;
+		}
+		$data = $collection->get_data();
+		if ( is_wp_error( $data ) || ! is_array( $data ) ) {
+			return $cache;
+		}
+		foreach ( (array) ( $data['font_families'] ?? [] ) as $entry ) {
+			$settings = $entry['font_family_settings'] ?? $entry;
+			$name     = (string) ( $settings['name'] ?? '' );
+			if ( '' === $name ) {
+				continue;
+			}
+			$faces = [];
+			foreach ( (array) ( $settings['fontFace'] ?? [] ) as $face ) {
+				$src = $face['src'] ?? '';
+				if ( is_array( $src ) ) {
+					$src = $src[0] ?? '';
+				}
+				if ( '' === (string) $src ) {
+					continue;
+				}
+				$faces[] = [
+					'src'    => (string) $src,
+					'weight' => (string) ( $face['fontWeight'] ?? '400' ),
+					'style'  => (string) ( $face['fontStyle'] ?? 'normal' ),
+				];
+			}
+			$cache[ self::normalize( $name ) ] = [
+				'name'  => $name,
+				'faces' => $faces,
+			];
+		}
+		return $cache;
+	}
+
+	/** Catalog family names, for the editor's recognition/autocomplete. */
+	public static function catalog_names(): array {
+		$names = array_map(
+			static function ( $f ) {
+				return $f['name'];
+			},
+			self::catalog()
+		);
+		sort( $names );
+		return array_values( $names );
+	}
+
+	/**
+	 * Install a catalog family into the Font Library (self-hosted): download its
+	 * regular (400/normal) face, save it to the font dir, and register the family.
+	 * Idempotent. Returns true on success (or if already installed).
+	 */
+	public static function install_from_catalog( string $name ): bool {
+		$key     = self::normalize( $name );
+		$catalog = self::catalog();
+		if ( ! isset( $catalog[ $key ] ) ) {
+			return false;
+		}
+		if ( isset( self::installed()[ $key ] ) ) {
+			return true;
+		}
+		$entry = $catalog[ $key ];
+
+		$face = null;
+		foreach ( $entry['faces'] as $candidate ) {
+			if ( '400' === $candidate['weight'] && 'normal' === $candidate['style'] ) {
+				$face = $candidate;
+				break;
+			}
+		}
+		if ( ! $face && isset( $entry['faces'][0] ) ) {
+			$face = $entry['faces'][0];
+		}
+		if ( ! $face ) {
+			return false;
+		}
+
+		$dir = wp_get_font_dir();
+		if ( ! is_dir( $dir['path'] ) ) {
+			wp_mkdir_p( $dir['path'] );
+		}
+
+		$response = wp_remote_get( $face['src'], [ 'timeout' => 25 ] );
+		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			return false;
+		}
+		$body = wp_remote_retrieve_body( $response );
+		if ( '' === $body ) {
+			return false;
+		}
+
+		$slug      = sanitize_title( $entry['name'] );
+		$filename  = sanitize_file_name( $slug . '-' . $face['weight'] . '-' . $face['style'] . '.woff2' );
+		if ( false === file_put_contents( trailingslashit( $dir['path'] ) . $filename, $body ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- writing a downloaded font to the font dir.
+			return false;
+		}
+		$local_url = trailingslashit( $dir['url'] ) . $filename;
+
+		$family_id = wp_insert_post(
+			[
+				'post_type'    => 'wp_font_family',
+				'post_status'  => 'publish',
+				'post_title'   => $entry['name'],
+				'post_name'    => $slug,
+				'post_content' => wp_json_encode(
+					[
+						'name'       => $entry['name'],
+						'slug'       => $slug,
+						'fontFamily' => '"' . $entry['name'] . '"',
+					]
+				),
+			],
+			true
+		);
+		if ( is_wp_error( $family_id ) || ! $family_id ) {
+			return false;
+		}
+		wp_insert_post(
+			[
+				'post_type'    => 'wp_font_face',
+				'post_status'  => 'publish',
+				'post_parent'  => $family_id,
+				'post_title'   => $entry['name'] . ' ' . $face['weight'],
+				'post_content' => wp_json_encode(
+					[
+						'fontFamily' => $entry['name'],
+						'fontWeight' => $face['weight'],
+						'fontStyle'  => $face['style'],
+						'src'        => $local_url,
+					]
+				),
+			]
+		);
+		return true;
 	}
 
 	/** Installed family display names, for the editor's font-family suggestions. */

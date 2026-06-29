@@ -9,9 +9,108 @@
  *    declarations are applied to the author's own preview element only (never
  *    stored from here); the saved value is sanitized server-side.
  *  - Rename toggle: "Rename" in a set's row actions reveals its inline form.
+ *  - Web fonts: recognize a typed font-family against the installed/catalog
+ *    families and offer to embed (self-host) a catalog font on demand.
  */
 ( function () {
 	'use strict';
+
+	var cfg = window.SheafStyleSets || {};
+	var FONTS = cfg.fonts || { installed: [], catalog: [] };
+	var I18N = cfg.i18n || {};
+	var installedFonts = {};
+	( FONTS.installed || [] ).forEach( function ( n ) {
+		installedFonts[ n.toLowerCase() ] = true;
+	} );
+	var catalogFonts = {};
+	( FONTS.catalog || [] ).forEach( function ( n ) {
+		catalogFonts[ n.toLowerCase() ] = n;
+	} );
+
+	function primaryFamily( value ) {
+		value = ( value || '' ).trim();
+		if ( ! value ) {
+			return '';
+		}
+		return value.split( ',' )[ 0 ].trim().replace( /^["']+|["']+$/g, '' );
+	}
+
+	// Reflect a typed font-family's status in its row: installed, embeddable
+	// (offer a button), or a plain/system font.
+	function recognizeFont( input ) {
+		var row = input.closest( '.sheaf-prop-row' );
+		var status = row ? row.querySelector( '.sheaf-font-status' ) : null;
+		if ( ! status ) {
+			return;
+		}
+		var family = primaryFamily( input.value );
+		var key = family.toLowerCase();
+		status.className = 'sheaf-font-status';
+		status.textContent = '';
+		if ( ! family ) {
+			return;
+		}
+		if ( installedFonts[ key ] ) {
+			status.textContent = I18N.embedded || '✓ embedded';
+			status.classList.add( 'is-installed' );
+		} else if ( catalogFonts[ key ] ) {
+			var button = document.createElement( 'button' );
+			button.type = 'button';
+			button.className = 'button button-small sheaf-embed';
+			button.setAttribute( 'data-family', catalogFonts[ key ] );
+			button.textContent = ( I18N.embed || 'Embed “%s”' ).replace( '%s', catalogFonts[ key ] );
+			status.appendChild( button );
+		} else {
+			status.textContent = I18N.system || '(system font)';
+		}
+	}
+
+	// Embed (self-host) a catalog font over AJAX, then inject its @font-face so
+	// the live preview shows it immediately.
+	function embedFont( button ) {
+		var family = button.getAttribute( 'data-family' );
+		button.disabled = true;
+		button.textContent = I18N.embedding || 'Embedding…';
+		var body = new URLSearchParams();
+		body.append( 'action', 'sheaf_embed_font' );
+		body.append( 'nonce', cfg.nonce || '' );
+		body.append( 'family', family );
+		fetch( cfg.ajax, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: body.toString(),
+		} )
+			.then( function ( r ) {
+				return r.json();
+			} )
+			.then( function ( res ) {
+				if ( res && res.success ) {
+					installedFonts[ family.toLowerCase() ] = true;
+					if ( res.data && res.data.css ) {
+						var style = document.createElement( 'style' );
+						style.textContent = res.data.css;
+						document.head.appendChild( style );
+					}
+					var row = button.closest( '.sheaf-prop-row' );
+					var input = row ? row.querySelector( '.sheaf-prop-value' ) : null;
+					var form = button.closest( 'form' );
+					if ( input ) {
+						recognizeFont( input );
+					}
+					if ( form ) {
+						render( form );
+					}
+				} else {
+					button.disabled = false;
+					button.textContent = I18N.failed || 'Embed failed';
+				}
+			} )
+			.catch( function () {
+				button.disabled = false;
+				button.textContent = I18N.failed || 'Embed failed';
+			} );
+	}
 
 	var SAMPLE_INLINE = 'The quick brown fox jumps over';
 	var SAMPLE_BLOCK =
@@ -96,6 +195,9 @@
 		input.name = 'props[' + prop + ']';
 		if ( 'font-family' === prop ) {
 			input.setAttribute( 'list', 'sheaf-font-list' ); // suggest installed fonts
+			var status = document.createElement( 'span' );
+			status.className = 'sheaf-font-status';
+			row.appendChild( status );
 		}
 		return row;
 	}
@@ -124,17 +226,28 @@
 				var input = propsBox.lastChild.querySelector( '.sheaf-prop-value' );
 				if ( input ) {
 					input.focus();
+					if ( 'font-family' === prop ) {
+						recognizeFont( input );
+					}
 				}
 				render( form );
 			} );
 		}
 
-		// Per-row remove: drop the row and return the property to the dropdown.
+		// Per-row remove, and embed-font buttons.
 		form.addEventListener( 'click', function ( event ) {
-			if ( ! event.target || ! event.target.classList.contains( 'sheaf-prop-remove' ) ) {
+			var target = event.target;
+			if ( ! target ) {
 				return;
 			}
-			var row = event.target.closest( '.sheaf-prop-row' );
+			if ( target.classList.contains( 'sheaf-embed' ) ) {
+				embedFont( target );
+				return;
+			}
+			if ( ! target.classList.contains( 'sheaf-prop-remove' ) ) {
+				return;
+			}
+			var row = target.closest( '.sheaf-prop-row' );
 			var prop = row ? row.querySelector( '.sheaf-prop-name' ).textContent : '';
 			if ( row ) {
 				row.remove();
@@ -148,9 +261,12 @@
 			render( form );
 		} );
 
-		form.addEventListener( 'input', function () {
+		form.addEventListener( 'input', function ( event ) {
 			render( form );
 			updateSelector( form );
+			if ( event.target && 'props[font-family]' === event.target.name ) {
+				recognizeFont( event.target );
+			}
 		} );
 		form.addEventListener( 'change', function () {
 			render( form );
@@ -158,12 +274,11 @@
 		} );
 		render( form );
 		updateSelector( form );
+		form.querySelectorAll( '.sheaf-prop-value[name="props[font-family]"]' ).forEach( recognizeFont );
 	} );
 
 	// Bulk-assign modal: open it, wire the check/uncheck-all box, and save the
 	// book checkboxes over AJAX (then reload to refresh the "Available in" cell).
-	var cfg = window.SheafStyleSets || {};
-
 	document.querySelectorAll( '.sheaf-bulk-open' ).forEach( function ( opener ) {
 		opener.addEventListener( 'click', function () {
 			var dialog = document.getElementById( 'sheaf-bulk-' + opener.getAttribute( 'data-set' ) );

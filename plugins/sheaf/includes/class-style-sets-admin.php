@@ -56,6 +56,7 @@ final class Style_Sets_Admin {
 		add_action( 'admin_post_' . self::ACTION, [ self::class, 'handle' ] );
 		add_action( 'admin_enqueue_scripts', [ self::class, 'enqueue' ] );
 		add_action( 'wp_ajax_sheaf_bulk_assign', [ self::class, 'ajax_bulk_assign' ] );
+		add_action( 'wp_ajax_sheaf_embed_font', [ self::class, 'ajax_embed_font' ] );
 	}
 
 	public static function add_page(): void {
@@ -90,6 +91,42 @@ final class Style_Sets_Admin {
 			[
 				'ajax'  => admin_url( 'admin-ajax.php' ),
 				'nonce' => wp_create_nonce( self::NONCE ),
+				'fonts' => [
+					'installed' => Fonts::installed_names(),
+					'catalog'   => Fonts::catalog_names(),
+				],
+				'i18n'  => [
+					'embedded' => __( '✓ embedded', 'sheaf' ),
+					'system'   => __( '(system font)', 'sheaf' ),
+					/* translators: %s: font family name. */
+					'embed'    => __( 'Embed “%s”', 'sheaf' ),
+					'embedding' => __( 'Embedding…', 'sheaf' ),
+					'failed'   => __( 'Embed failed', 'sheaf' ),
+				],
+			]
+		);
+	}
+
+	/**
+	 * Embed (self-host) a catalog font on demand, returning its @font-face so the
+	 * editor can show it in the live preview right away.
+	 */
+	public static function ajax_embed_font(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( 'forbidden', 403 );
+		}
+		$family = isset( $_POST['family'] ) ? sanitize_text_field( wp_unslash( $_POST['family'] ) ) : '';
+		if ( '' === $family ) {
+			wp_send_json_error( 'no-family', 400 );
+		}
+		if ( ! Fonts::install_from_catalog( $family ) ) {
+			wp_send_json_error( 'install-failed', 500 );
+		}
+		wp_send_json_success(
+			[
+				'family' => $family,
+				'css'    => Fonts::face_css( $family ),
 			]
 		);
 	}
@@ -612,7 +649,7 @@ final class Style_Sets_Admin {
 		foreach ( $remaining as $prop ) {
 			echo '<option value="' . esc_attr( $prop ) . '">' . esc_html( $prop ) . '</option>';
 		}
-		echo '</select></div>';
+		echo '</select> <a class="sheaf-browse-fonts" href="https://fonts.google.com/" target="_blank" rel="noopener">' . esc_html__( 'Browse Google Fonts ↗', 'sheaf' ) . '</a></div>';
 
 		// Raw-CSS catch-all for anything outside the whitelist.
 		echo '<textarea name="css" class="sheaf-css-raw" rows="2" placeholder="' . esc_attr__( 'other declarations; e.g. text-shadow: 0 0 2px #0f0;', 'sheaf' ) . '">' . esc_textarea( (string) ( $style['css'] ?? '' ) ) . '</textarea>';
@@ -634,12 +671,17 @@ final class Style_Sets_Admin {
 
 	/** One property row in the CSS-block editor: "name: [value] ×". */
 	private static function prop_row( string $prop, string $val ): void {
-		// The font-family field suggests installed Font Library families.
-		$list = 'font-family' === $prop ? ' list="sheaf-font-list"' : '';
+		// The font-family field suggests installed Font Library families and gets a
+		// recognition/embed status slot (filled by the JS).
+		$is_font = 'font-family' === $prop;
+		$list    = $is_font ? ' list="sheaf-font-list"' : '';
 		echo '<div class="sheaf-prop-row">';
 		echo '<span class="sheaf-prop-name">' . esc_html( $prop ) . '</span>: ';
 		echo '<input type="text" class="sheaf-prop-value"' . $list . ' name="props[' . esc_attr( $prop ) . ']" value="' . esc_attr( $val ) . '">';
 		echo '<button type="button" class="sheaf-prop-remove" aria-label="' . esc_attr__( 'Remove this property', 'sheaf' ) . '">&times;</button>';
+		if ( $is_font ) {
+			echo '<span class="sheaf-font-status"></span>';
+		}
 		echo '</div>';
 	}
 
@@ -714,6 +756,9 @@ final class Style_Sets_Admin {
 			.sheaf-prop-name{color:#646970;white-space:nowrap}
 			.sheaf-prop-value{flex:1;font-family:inherit}
 			.sheaf-prop-remove{border:0;background:none;color:#b32d2e;cursor:pointer;font-size:16px;line-height:1;padding:0 .25em}
+			.sheaf-font-status{margin-left:.5em;font-size:12px;color:#646970}
+			.sheaf-font-status.is-installed{color:#1a7f37}
+			.sheaf-browse-fonts{font-size:12px;margin-left:.5em}
 			.sheaf-css-add{margin:.25em 0 .25em 1.6em}
 			.sheaf-css-raw{display:block;width:calc(100% - 1.6em);margin:.35em 0 .35em 1.6em;font-family:inherit}
 			.sheaf-style-preview{flex:1 1 18em;min-width:16em;position:sticky;top:2em;padding:.6em .8em;border:1px solid #dcdcde;border-radius:4px;background:#fff}
