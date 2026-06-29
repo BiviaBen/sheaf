@@ -224,6 +224,7 @@ final class Style_Sets_Admin {
 
 		self::notice();
 		self::styles();
+		self::render_font_datalist();
 
 		self::render_list( $all, $selected );
 
@@ -633,11 +634,22 @@ final class Style_Sets_Admin {
 
 	/** One property row in the CSS-block editor: "name: [value] ×". */
 	private static function prop_row( string $prop, string $val ): void {
+		// The font-family field suggests installed Font Library families.
+		$list = 'font-family' === $prop ? ' list="sheaf-font-list"' : '';
 		echo '<div class="sheaf-prop-row">';
 		echo '<span class="sheaf-prop-name">' . esc_html( $prop ) . '</span>: ';
-		echo '<input type="text" class="sheaf-prop-value" name="props[' . esc_attr( $prop ) . ']" value="' . esc_attr( $val ) . '">';
+		echo '<input type="text" class="sheaf-prop-value"' . $list . ' name="props[' . esc_attr( $prop ) . ']" value="' . esc_attr( $val ) . '">';
 		echo '<button type="button" class="sheaf-prop-remove" aria-label="' . esc_attr__( 'Remove this property', 'sheaf' ) . '">&times;</button>';
 		echo '</div>';
+	}
+
+	/** Datalist of installed font families, referenced by the font-family field. */
+	private static function render_font_datalist(): void {
+		echo '<datalist id="sheaf-font-list">';
+		foreach ( Fonts::installed_names() as $name ) {
+			echo '<option value="' . esc_attr( $name ) . '"></option>';
+		}
+		echo '</datalist>';
 	}
 
 	/** The CSS selector a style's class produces, for the editor's block header. */

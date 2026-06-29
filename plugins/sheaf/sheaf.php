@@ -25,6 +25,7 @@ define( 'SHEAF_URL', plugin_dir_url( __FILE__ ) );
 
 require_once SHEAF_DIR . 'includes/class-books.php';
 require_once SHEAF_DIR . 'includes/class-style-sets.php';
+require_once SHEAF_DIR . 'includes/class-fonts.php';
 require_once SHEAF_DIR . 'includes/class-words.php';
 require_once SHEAF_DIR . 'includes/class-chapters.php';
 require_once SHEAF_DIR . 'includes/class-permalinks.php';

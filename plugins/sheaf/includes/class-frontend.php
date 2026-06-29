@@ -140,7 +140,8 @@ final class Frontend {
 		if ( is_admin() ) {
 			return;
 		}
-		$css = self::style_css();
+		// @font-face for referenced web fonts, then the style rules.
+		$css = Fonts::font_face_css() . self::style_css();
 		if ( '' === $css ) {
 			return;
 		}

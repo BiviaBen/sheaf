@@ -92,7 +92,11 @@
 			'<input type="text" class="sheaf-prop-value">' +
 			'<button type="button" class="sheaf-prop-remove" aria-label="Remove this property">×</button>';
 		row.querySelector( '.sheaf-prop-name' ).textContent = prop;
-		row.querySelector( '.sheaf-prop-value' ).name = 'props[' + prop + ']';
+		var input = row.querySelector( '.sheaf-prop-value' );
+		input.name = 'props[' + prop + ']';
+		if ( 'font-family' === prop ) {
+			input.setAttribute( 'list', 'sheaf-font-list' ); // suggest installed fonts
+		}
 		return row;
 	}
 

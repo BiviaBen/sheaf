@@ -33,7 +33,9 @@ final class Style_Sets_Editor {
 		if ( ! is_admin() ) {
 			return;
 		}
-		$css = Frontend::style_css();
+		// @font-face for referenced web fonts, then the style rules — so embedded
+		// fonts render in the editor canvas too.
+		$css = Fonts::font_face_css() . Frontend::style_css();
 		if ( '' === $css ) {
 			return;
 		}
