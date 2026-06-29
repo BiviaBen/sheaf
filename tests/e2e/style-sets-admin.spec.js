@@ -4,7 +4,7 @@
 
 const { test, expect } = require( '@playwright/test' );
 const { setupSelectorFixture, cleanupE2E, activeSets } = require( './helpers/fixtures' );
-const { wpEvalJson } = require( './helpers/wp' );
+const { wpEval, wpEvalJson } = require( './helpers/wp' );
 
 const ADMIN = '/wp-admin/admin.php?page=sheaf-style-sets';
 
@@ -46,6 +46,25 @@ test( 'create a set and add inline + block styles through the UI', async ( { pag
 	await page.locator( '#sheaf-set-detail input[name="label"]' ).fill( 'E2E Stanza' );
 	await page.locator( '#sheaf-set-detail input[name="label"]' ).press( 'Enter' );
 	await expect( page.locator( '#sheaf-set-detail' ).getByText( 'E2E Stanza' ) ).toBeVisible();
+} );
+
+test( 'removing a property returns it to the dropdown in canonical order', async ( { page } ) => {
+	wpEval( "\\Sheaf\\Style_Sets::save_set( 'E2E Order Set' );" );
+	await page.goto( ADMIN + '&set=e2e-order-set' );
+
+	const detail = page.locator( '#sheaf-set-detail' );
+	const addSelect = detail.locator( '.sheaf-add-prop' );
+
+	// Add font-size (canonical index 1), then remove it.
+	await addSelect.selectOption( 'font-size' );
+	await detail.locator( '.sheaf-prop-row .sheaf-prop-remove' ).first().click();
+
+	// It returns to its slot (after font-family, before font-weight) — not the bottom.
+	const values = await addSelect
+		.locator( 'option' )
+		.evaluateAll( ( opts ) => opts.map( ( o ) => o.value ).filter( Boolean ) );
+	expect( values.indexOf( 'font-size' ) ).toBe( 1 );
+	expect( values.indexOf( 'font-size' ) ).toBeLessThan( values.indexOf( 'font-weight' ) );
 } );
 
 test( 'bulk-assign a set to a book', async ( { page } ) => {

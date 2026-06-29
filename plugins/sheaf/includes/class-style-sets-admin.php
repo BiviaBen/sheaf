@@ -91,6 +91,7 @@ final class Style_Sets_Admin {
 			[
 				'ajax'  => admin_url( 'admin-ajax.php' ),
 				'nonce' => wp_create_nonce( self::NONCE ),
+				'props' => array_values( Style_Sets::ALLOWED_PROPS ),
 				'fonts' => [
 					'installed' => Fonts::installed_names(),
 					'catalog'   => Fonts::catalog_names(),

@@ -27,6 +27,32 @@
 		catalogFonts[ n.toLowerCase() ] = n;
 	} );
 
+	var PROP_ORDER = cfg.props || [];
+
+	// Re-insert a property option into the "Add property" dropdown at its canonical
+	// position (matching PROP_ORDER), rather than appending it to the bottom.
+	function addOptionInOrder( select, value ) {
+		if ( select.querySelector( 'option[value="' + value + '"]' ) ) {
+			return;
+		}
+		var index = PROP_ORDER.indexOf( value );
+		var before = null;
+		Array.prototype.some.call( select.querySelectorAll( 'option' ), function ( opt ) {
+			if ( '' === opt.value ) {
+				return false; // skip the "Add property…" placeholder
+			}
+			if ( PROP_ORDER.indexOf( opt.value ) > index ) {
+				before = opt;
+				return true;
+			}
+			return false;
+		} );
+		var option = document.createElement( 'option' );
+		option.value = value;
+		option.textContent = value;
+		select.insertBefore( option, before ); // insertBefore(null) === append
+	}
+
 	function primaryFamily( value ) {
 		value = ( value || '' ).trim();
 		if ( ! value ) {
@@ -252,11 +278,8 @@
 			if ( row ) {
 				row.remove();
 			}
-			if ( prop && addSelect && ! addSelect.querySelector( 'option[value="' + prop + '"]' ) ) {
-				var opt = document.createElement( 'option' );
-				opt.value = prop;
-				opt.textContent = prop;
-				addSelect.appendChild( opt );
+			if ( prop && addSelect ) {
+				addOptionInOrder( addSelect, prop );
 			}
 			render( form );
 		} );
