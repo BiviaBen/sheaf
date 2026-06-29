@@ -28,9 +28,12 @@ test( 'create a set and add inline + block styles through the UI', async ( { pag
 	const detail = page.locator( '#sheaf-set-detail' );
 	await expect( detail.locator( 'h2' ) ).toContainText( 'E2E Admin Set' );
 
-	// Add an inline style. (Submit via Enter on the name field: the live preview
-	// reflows the area under the submit button, making a direct button click flaky.)
+	// Add an inline style. Properties use progressive disclosure: pick one from
+	// "Add property", then fill the row that appears. (Submit via Enter on the
+	// name field: the live preview reflows under the submit button, making a
+	// direct button click flaky.)
 	await detail.locator( 'select[name="kind"]' ).selectOption( 'inline' );
+	await detail.locator( '.sheaf-add-prop' ).selectOption( 'font-style' );
 	await detail.locator( 'input[name="props[font-style]"]' ).fill( 'italic' );
 	await detail.locator( 'input[name="label"]' ).fill( 'E2E Whisper' );
 	await detail.locator( 'input[name="label"]' ).press( 'Enter' );
@@ -38,6 +41,7 @@ test( 'create a set and add inline + block styles through the UI', async ( { pag
 
 	// Add a block style.
 	await page.locator( '#sheaf-set-detail select[name="kind"]' ).selectOption( 'block' );
+	await page.locator( '#sheaf-set-detail .sheaf-add-prop' ).selectOption( 'text-align' );
 	await page.locator( '#sheaf-set-detail input[name="props[text-align]"]' ).fill( 'center' );
 	await page.locator( '#sheaf-set-detail input[name="label"]' ).fill( 'E2E Stanza' );
 	await page.locator( '#sheaf-set-detail input[name="label"]' ).press( 'Enter' );

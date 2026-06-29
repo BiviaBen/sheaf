@@ -62,17 +62,98 @@
 		}
 	}
 
+	function slugify( s ) {
+		return s.toLowerCase().replace( /[^a-z0-9]+/g, '-' ).replace( /^-+|-+$/g, '' );
+	}
+
+	// Update the CSS-block selector header from the name (for new styles) / stored
+	// slug (when editing) and the kind.
+	function updateSelector( form ) {
+		var el = form.querySelector( '.sheaf-selector-text' );
+		if ( ! el ) {
+			return;
+		}
+		var set = form.querySelector( '.sheaf-style-form' );
+		set = set ? set.getAttribute( 'data-set' ) : '';
+		var stored = form.querySelector( '.sheaf-style-form' );
+		stored = stored ? stored.getAttribute( 'data-style' ) : '';
+		var nameEl = form.querySelector( '[name="label"]' );
+		var slug = stored || ( nameEl ? slugify( nameEl.value ) : '' ) || '…';
+		var prefix = 'block' === kindOf( form ) ? '.is-style-sheaf-' : '.sheaf-style-';
+		el.textContent = prefix + set + '-' + slug;
+	}
+
+	// Build a "name: [value] ×" property row for a whitelisted property.
+	function propRow( prop ) {
+		var row = document.createElement( 'div' );
+		row.className = 'sheaf-prop-row';
+		row.innerHTML =
+			'<span class="sheaf-prop-name"></span>: ' +
+			'<input type="text" class="sheaf-prop-value">' +
+			'<button type="button" class="sheaf-prop-remove" aria-label="Remove this property">×</button>';
+		row.querySelector( '.sheaf-prop-name' ).textContent = prop;
+		row.querySelector( '.sheaf-prop-value' ).name = 'props[' + prop + ']';
+		return row;
+	}
+
 	document.querySelectorAll( '.sheaf-style-sets form' ).forEach( function ( form ) {
 		if ( ! form.querySelector( '[name="kind"]' ) ) {
 			return; // Not a style add/edit form.
 		}
+
+		var addSelect = form.querySelector( '.sheaf-add-prop' );
+		var propsBox = form.querySelector( '.sheaf-css-props' );
+
+		// "Add property": move the chosen property out of the dropdown into a row.
+		if ( addSelect && propsBox ) {
+			addSelect.addEventListener( 'change', function () {
+				var prop = addSelect.value;
+				if ( ! prop ) {
+					return;
+				}
+				propsBox.appendChild( propRow( prop ) );
+				var opt = addSelect.querySelector( 'option[value="' + prop + '"]' );
+				if ( opt ) {
+					opt.remove();
+				}
+				addSelect.value = '';
+				var input = propsBox.lastChild.querySelector( '.sheaf-prop-value' );
+				if ( input ) {
+					input.focus();
+				}
+				render( form );
+			} );
+		}
+
+		// Per-row remove: drop the row and return the property to the dropdown.
+		form.addEventListener( 'click', function ( event ) {
+			if ( ! event.target || ! event.target.classList.contains( 'sheaf-prop-remove' ) ) {
+				return;
+			}
+			var row = event.target.closest( '.sheaf-prop-row' );
+			var prop = row ? row.querySelector( '.sheaf-prop-name' ).textContent : '';
+			if ( row ) {
+				row.remove();
+			}
+			if ( prop && addSelect && ! addSelect.querySelector( 'option[value="' + prop + '"]' ) ) {
+				var opt = document.createElement( 'option' );
+				opt.value = prop;
+				opt.textContent = prop;
+				addSelect.appendChild( opt );
+			}
+			render( form );
+		} );
+
 		form.addEventListener( 'input', function () {
 			render( form );
+			updateSelector( form );
 		} );
 		form.addEventListener( 'change', function () {
 			render( form );
+			updateSelector( form );
 		} );
 		render( form );
+		updateSelector( form );
 	} );
 
 	// Bulk-assign modal: open it, wire the check/uncheck-all box, and save the

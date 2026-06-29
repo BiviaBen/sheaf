@@ -566,45 +566,85 @@ final class Style_Sets_Admin {
 	 * @param array<string,mixed> $style
 	 */
 	private static function render_style_form( string $set, string $style_slug = '', array $style = [] ): void {
-		$kind  = $style['kind'] ?? 'inline';
-		$props = (array) ( $style['props'] ?? [] );
+		$kind = $style['kind'] ?? 'inline';
+		// Only properties that actually carry a value (progressive disclosure).
+		$props = array_filter(
+			(array) ( $style['props'] ?? [] ),
+			static function ( $v ) {
+				return '' !== (string) $v;
+			}
+		);
+		$label    = (string) ( $style['label'] ?? '' );
+		$sel_slug = '' !== $style_slug ? $style_slug : '…';
 
 		self::open_form();
 		echo '<input type="hidden" name="op" value="save_style">';
 		echo '<input type="hidden" name="set" value="' . esc_attr( $set ) . '">';
 		echo '<input type="hidden" name="style" value="' . esc_attr( $style_slug ) . '">';
 
-		echo '<table class="form-table" role="presentation"><tbody>';
-		echo '<tr><th><label>' . esc_html__( 'Name', 'sheaf' ) . '</label></th><td><input type="text" name="label" required class="regular-text" value="' . esc_attr( (string) ( $style['label'] ?? '' ) ) . '" placeholder="' . esc_attr__( 'e.g. Computer Voice', 'sheaf' ) . '"></td></tr>';
+		echo '<div class="sheaf-style-form" data-set="' . esc_attr( $set ) . '" data-style="' . esc_attr( $style_slug ) . '">';
 
-		echo '<tr><th><label>' . esc_html__( 'Applies to', 'sheaf' ) . '</label></th><td><select name="kind">';
-		echo '<option value="inline"' . selected( $kind, 'inline', false ) . '>' . esc_html__( 'Inline phrase (a span within a paragraph)', 'sheaf' ) . '</option>';
-		echo '<option value="block"' . selected( $kind, 'block', false ) . '>' . esc_html__( 'Whole paragraph (a block)', 'sheaf' ) . '</option>';
-		echo '</select></td></tr>';
+		// Name + kind.
+		echo '<p class="sheaf-style-meta">';
+		echo '<label>' . esc_html__( 'Name', 'sheaf' ) . ' <input type="text" name="label" required value="' . esc_attr( $label ) . '" placeholder="' . esc_attr__( 'e.g. Computer Voice', 'sheaf' ) . '"></label> ';
+		echo '<label>' . esc_html__( 'Applies to', 'sheaf' ) . ' <select name="kind">';
+		echo '<option value="inline"' . selected( $kind, 'inline', false ) . '>' . esc_html__( 'Inline phrase', 'sheaf' ) . '</option>';
+		echo '<option value="block"' . selected( $kind, 'block', false ) . '>' . esc_html__( 'Whole paragraph', 'sheaf' ) . '</option>';
+		echo '</select></label>';
+		echo '</p>';
 
-		// Property grid, driven by the whitelist so it stays in sync.
-		echo '<tr><th>' . esc_html__( 'Properties', 'sheaf' ) . '</th><td><div class="sheaf-prop-grid">';
-		foreach ( Style_Sets::ALLOWED_PROPS as $prop ) {
-			$val = isset( $props[ $prop ] ) ? (string) $props[ $prop ] : '';
-			echo '<label class="sheaf-prop"><span>' . esc_html( $prop ) . '</span>';
-			echo '<input type="text" name="props[' . esc_attr( $prop ) . ']" value="' . esc_attr( $val ) . '"></label>';
+		// Editor (CSS-rule block) on the left, live preview on the right.
+		echo '<div class="sheaf-style-layout">';
+
+		echo '<div class="sheaf-css-block">';
+		echo '<div class="sheaf-css-selector"><span class="sheaf-selector-text">' . esc_html( self::selector_preview( $set, $sel_slug, (string) $kind ) ) . '</span> {</div>';
+		echo '<div class="sheaf-css-props">';
+		foreach ( $props as $prop => $val ) {
+			self::prop_row( (string) $prop, (string) $val );
 		}
-		echo '</div></td></tr>';
+		echo '</div>';
 
-		echo '<tr><th><label>' . esc_html__( 'Raw CSS', 'sheaf' ) . '</label></th><td><textarea name="css" rows="2" class="large-text code" placeholder="' . esc_attr__( 'extra declarations, e.g. text-shadow: 0 0 2px #0f0;', 'sheaf' ) . '">' . esc_textarea( (string) ( $style['css'] ?? '' ) ) . '</textarea><p class="description">' . esc_html__( 'For properties not in the grid. Declarations only — no selectors or braces.', 'sheaf' ) . '</p></td></tr>';
+		// "Add property" lists the remaining whitelisted properties.
+		$remaining = array_values( array_diff( Style_Sets::ALLOWED_PROPS, array_keys( $props ) ) );
+		echo '<div class="sheaf-css-add"><select class="sheaf-add-prop" aria-label="' . esc_attr__( 'Add a property', 'sheaf' ) . '">';
+		echo '<option value="">＋ ' . esc_html__( 'Add property…', 'sheaf' ) . '</option>';
+		foreach ( $remaining as $prop ) {
+			echo '<option value="' . esc_attr( $prop ) . '">' . esc_html( $prop ) . '</option>';
+		}
+		echo '</select></div>';
 
-		echo '</tbody></table>';
+		// Raw-CSS catch-all for anything outside the whitelist.
+		echo '<textarea name="css" class="sheaf-css-raw" rows="2" placeholder="' . esc_attr__( 'other declarations; e.g. text-shadow: 0 0 2px #0f0;', 'sheaf' ) . '">' . esc_textarea( (string) ( $style['css'] ?? '' ) ) . '</textarea>';
+		echo '<div class="sheaf-css-close">}</div>';
+		echo '</div>'; // .sheaf-css-block
 
-		// Live preview target — filled and updated by admin-style-preview.js. The
-		// sample text is generated here so it matches the server-rendered previews.
-		echo '<div class="sheaf-live-preview"><p class="description">' . esc_html__( 'Live preview', 'sheaf' ) . '</p>'
+		echo '<div class="sheaf-style-preview"><p class="description">' . esc_html__( 'Live preview', 'sheaf' ) . '</p>'
 			. '<div class="sheaf-live-target" data-inline="' . esc_attr( self::filler( false ) ) . '" data-block="' . esc_attr( self::filler( true ) ) . '"></div></div>';
+
+		echo '</div>'; // .sheaf-style-layout
+		echo '</div>'; // .sheaf-style-form
 
 		submit_button( '' === $style_slug ? __( 'Add style', 'sheaf' ) : __( 'Save style', 'sheaf' ), 'primary', '', false );
 		if ( '' !== $style_slug ) {
 			echo ' <a class="button-link" href="' . esc_url( self::url( [ 'set' => $set ] ) . '#sheaf-set-detail' ) . '">' . esc_html__( 'Cancel', 'sheaf' ) . '</a>';
 		}
 		echo '</form>';
+	}
+
+	/** One property row in the CSS-block editor: "name: [value] ×". */
+	private static function prop_row( string $prop, string $val ): void {
+		echo '<div class="sheaf-prop-row">';
+		echo '<span class="sheaf-prop-name">' . esc_html( $prop ) . '</span>: ';
+		echo '<input type="text" class="sheaf-prop-value" name="props[' . esc_attr( $prop ) . ']" value="' . esc_attr( $val ) . '">';
+		echo '<button type="button" class="sheaf-prop-remove" aria-label="' . esc_attr__( 'Remove this property', 'sheaf' ) . '">&times;</button>';
+		echo '</div>';
+	}
+
+	/** The CSS selector a style's class produces, for the editor's block header. */
+	private static function selector_preview( string $set, string $style_slug, string $kind ): string {
+		return 'block' === $kind
+			? '.is-style-sheaf-' . $set . '-' . $style_slug
+			: '.sheaf-style-' . $set . '-' . $style_slug;
 	}
 
 	private static function open_form( string $style = '', string $onsubmit = '' ): void {
@@ -653,9 +693,19 @@ final class Style_Sets_Admin {
 
 	private static function styles(): void {
 		echo '<style>
-			.sheaf-prop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(14em,1fr));gap:.5em 1em}
-			.sheaf-prop{display:flex;flex-direction:column;font-size:12px}
-			.sheaf-prop input{width:100%}
+			.sheaf-style-meta label{margin-right:1.6em}
+			.sheaf-style-layout{display:flex;gap:1.5em;align-items:flex-start;flex-wrap:wrap;margin:.6em 0 1em}
+			.sheaf-css-block{flex:1 1 28em;min-width:24em;font-family:Menlo,Consolas,monospace;font-size:13px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:.6em .9em}
+			.sheaf-css-selector,.sheaf-css-close{color:#2271b1}
+			.sheaf-css-props{margin:.2em 0}
+			.sheaf-prop-row{display:flex;align-items:center;gap:.35em;margin:.15em 0 .15em 1.6em}
+			.sheaf-prop-name{color:#646970;white-space:nowrap}
+			.sheaf-prop-value{flex:1;font-family:inherit}
+			.sheaf-prop-remove{border:0;background:none;color:#b32d2e;cursor:pointer;font-size:16px;line-height:1;padding:0 .25em}
+			.sheaf-css-add{margin:.25em 0 .25em 1.6em}
+			.sheaf-css-raw{display:block;width:calc(100% - 1.6em);margin:.35em 0 .35em 1.6em;font-family:inherit}
+			.sheaf-style-preview{flex:1 1 18em;min-width:16em;position:sticky;top:2em;padding:.6em .8em;border:1px solid #dcdcde;border-radius:4px;background:#fff}
+			.sheaf-style-preview>.description{margin:0 0 .4em}
 			.sheaf-rename{margin:.4em 0}
 			.sheaf-rename-note{margin:.4em 0 0}
 			.sheaf-link-danger{color:#b32d2e}
@@ -671,8 +721,6 @@ final class Style_Sets_Admin {
 			.sheaf-prev{max-width:40em;margin:0}
 			.sheaf-prev-actual{margin:0}
 			.sheaf-prev-rep{margin:0;height:1.1em;border-radius:2px;background:repeating-linear-gradient(45deg,#f6f7f7,#f6f7f7 6px,#eceef0 6px,#eceef0 12px)}
-			.sheaf-live-preview{margin:0 0 1em;padding:.6em .8em;border:1px solid #dcdcde;border-radius:4px;background:#fff;max-width:42em}
-			.sheaf-live-preview>.description{margin:0 0 .4em}
 		</style>';
 	}
 }
