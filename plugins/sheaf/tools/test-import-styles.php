@@ -314,6 +314,18 @@ try {
 	$sd4     = \Sheaf\Style_Sets::get_set( $active4[0] ?? '' );
 	$check( $sd4 && isset( $sd4['styles']['courier-new-10pt'] ), 'C2 set includes the direct style' );
 	wp_delete_post( $book4, true );
+
+	/* ---- apply_font_substitution (Phase 3) -------------------------------- */
+
+	$sub = $private( '\Sheaf\Import', 'apply_font_substitution' );
+	list( $p1, $e1 ) = $sub->invoke( null, [ 'font-family' => 'Calibri', 'font-size' => '11pt' ] );
+	$check( 'Carlito' === ( $p1['font-family'] ?? '' ) && 'Carlito' === $e1, 'substitution swaps Calibri -> Carlito and embeds it' );
+	list( $p2, $e2 ) = $sub->invoke( null, [ 'font-family' => 'Times New Roman' ] );
+	$check( 'Times New Roman' === ( $p2['font-family'] ?? '' ) && '' === $e2, 'web-safe font is kept, not embedded' );
+	list( $p3, $e3 ) = $sub->invoke( null, [ 'font-family' => 'EB Garamond' ] );
+	$check( 'EB Garamond' === ( $p3['font-family'] ?? '' ) && 'EB Garamond' === $e3, 'a catalog font is kept and embedded as itself' );
+	list( $p4, $e4 ) = $sub->invoke( null, [ 'color' => '#000' ] );
+	$check( '' === $e4, 'no font-family -> nothing to embed' );
 } finally {
 	$_POST = $post_backup;
 	update_option( \Sheaf\Style_Sets::OPTION, $snapshot );

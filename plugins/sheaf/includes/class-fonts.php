@@ -22,6 +22,37 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class Fonts {
 
 	/**
+	 * Word/system fonts that are not freely embeddable, mapped to a free Google
+	 * Fonts equivalent (metric-compatible where one exists, so an imported
+	 * manuscript keeps its layout). Web-safe fonts (Arial, Times New Roman,
+	 * Georgia, Courier New, …) are deliberately absent — they stay as system
+	 * stacks. Normalized (lowercase) keys. Every target is a catalog family.
+	 */
+	private const SUBSTITUTIONS = [
+		'calibri'           => 'Carlito',  // metric-compatible
+		'cambria'           => 'Caladea',  // metric-compatible
+		'garamond'          => 'EB Garamond',
+		'book antiqua'      => 'Gelasio',
+		'palatino'          => 'Gelasio',
+		'palatino linotype' => 'Gelasio',
+	];
+
+	/** The free web-font equivalent for a Word/system font, or '' if none. */
+	public static function substitute( string $name ): string {
+		return self::SUBSTITUTIONS[ self::normalize( $name ) ] ?? '';
+	}
+
+	/** All substitution target families (for the drift-guard test). */
+	public static function substitution_targets(): array {
+		return array_values( array_unique( array_values( self::SUBSTITUTIONS ) ) );
+	}
+
+	/** Whether a family exists in the bundled Google Fonts catalog. */
+	public static function in_catalog( string $name ): bool {
+		return isset( self::catalog()[ self::normalize( $name ) ] );
+	}
+
+	/**
 	 * Fonts installed in the Font Library, keyed by normalized family name.
 	 *
 	 * @return array<string,array{name:string,faces:array<int,array{src:string,weight:string,style:string}>}>

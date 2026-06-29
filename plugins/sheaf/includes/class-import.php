@@ -1015,7 +1015,23 @@ final class Import {
 			echo '<tr>';
 			printf( '<td><input type="checkbox" class="sheaf-direct-cb" value="%s"></td>', esc_attr( $id ) );
 			printf( '<td><span style="%1$s">%2$s</span></td>', esc_attr( $decl ), esc_html( '' !== $cluster['sample'] ? $cluster['sample'] : '—' ) );
-			printf( '<td><code>%s</code></td>', esc_html( self::describe_direct( $cluster['props'] ) ) );
+			$font = Fonts::primary_family( (string) ( $cluster['props']['font-family'] ?? '' ) );
+			$note = '';
+			if ( '' !== $font ) {
+				$sub = Fonts::substitute( $font );
+				if ( '' !== $sub ) {
+					/* translators: 1: Word font, 2: web-font equivalent. */
+					$note = sprintf( __( 'font %1$s → %2$s (embedded)', 'sheaf' ), $font, $sub );
+				} elseif ( Fonts::in_catalog( $font ) ) {
+					/* translators: %s: web-font family name. */
+					$note = sprintf( __( 'font %s (embedded)', 'sheaf' ), $font );
+				}
+			}
+			printf(
+				'<td><code>%1$s</code>%2$s</td>',
+				esc_html( self::describe_direct( $cluster['props'] ) ),
+				'' !== $note ? '<br><span class="description">' . esc_html( $note ) . '</span>' : ''
+			);
 			printf( '<td>%s</td>', esc_html( number_format_i18n( $cluster['count'] ) ) );
 			echo '<td>';
 			self::style_select( 'direct_map[' . $id . ']', $options, 'inline', $selected, self::describe_direct( $cluster['props'] ), 'sheaf-direct-select' );
@@ -1213,8 +1229,14 @@ final class Import {
 				$block_map[ (string) $word ] = Style_Sets::css_class( $set, $style, 'block' );
 			}
 			foreach ( $clusters as $cluster ) {
-				// Direct clusters carry their actual props, so the new style works at once.
-				$style = Style_Sets::save_style( $set, [ 'label' => self::describe_direct( $cluster['props'] ), 'kind' => 'inline', 'props' => $cluster['props'] ] );
+				// Direct clusters carry their actual props (with web-font substitution),
+				// so the new style works at once.
+				$label                 = self::describe_direct( $cluster['props'] );
+				list( $props, $embed ) = self::apply_font_substitution( $cluster['props'] );
+				if ( '' !== $embed ) {
+					Fonts::install_from_catalog( $embed );
+				}
+				$style                               = Style_Sets::save_style( $set, [ 'label' => $label, 'kind' => 'inline', 'props' => $props ] );
 				$direct_map[ $cluster['signature'] ] = Style_Sets::style_class( $set, $style );
 			}
 			if ( $book ) {
@@ -1256,13 +1278,43 @@ final class Import {
 			if ( '' === $set || ! in_array( $set, $active, true ) ) {
 				continue;
 			}
-			$style = Style_Sets::save_style( $set, [ 'label' => self::describe_direct( $cluster['props'] ), 'kind' => 'inline', 'props' => $cluster['props'] ] );
+			$label              = self::describe_direct( $cluster['props'] );
+			list( $props, $embed ) = self::apply_font_substitution( $cluster['props'] );
+			if ( '' !== $embed ) {
+				Fonts::install_from_catalog( $embed );
+			}
+			$style = Style_Sets::save_style( $set, [ 'label' => $label, 'kind' => 'inline', 'props' => $props ] );
 			if ( '' === $style ) {
 				continue;
 			}
 			$map[ $cluster['signature'] ] = Style_Sets::style_class( $set, $style );
 		}
 		return $map;
+	}
+
+	/**
+	 * Apply web-font substitution to a direct cluster's props: swap a Word/system
+	 * font for its free equivalent, and report the catalog family to embed (the
+	 * substitute, or the original font if it is itself a catalog family).
+	 *
+	 * @param array<string,string> $props
+	 * @return array{0:array<string,string>,1:string} [ props, embed-family ]
+	 */
+	private static function apply_font_substitution( array $props ): array {
+		$value = (string) ( $props['font-family'] ?? '' );
+		if ( '' === $value ) {
+			return [ $props, '' ];
+		}
+		$primary    = Fonts::primary_family( $value );
+		$substitute = Fonts::substitute( $primary );
+		if ( '' !== $substitute ) {
+			$props['font-family'] = $substitute;
+			return [ $props, $substitute ];
+		}
+		if ( Fonts::in_catalog( $primary ) ) {
+			return [ $props, $primary ];
+		}
+		return [ $props, '' ];
 	}
 
 	/**

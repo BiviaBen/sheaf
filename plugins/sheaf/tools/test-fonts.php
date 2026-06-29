@@ -68,6 +68,22 @@ try {
 	$check( count( $catalog_names ) > 100, 'catalog_names returns the bundled families' );
 	$check( in_array( 'EB Garamond', $catalog_names, true ), 'catalog includes a known family' );
 
+	// Word-font substitution + catalog membership.
+	$check( 'Carlito' === \Sheaf\Fonts::substitute( 'Calibri' ), 'substitute: Calibri -> Carlito' );
+	$check( 'Caladea' === \Sheaf\Fonts::substitute( 'cambria' ), 'substitute: case-insensitive' );
+	$check( '' === \Sheaf\Fonts::substitute( 'Times New Roman' ), 'substitute: web-safe font has no substitute' );
+	$check( \Sheaf\Fonts::in_catalog( 'EB Garamond' ), 'in_catalog: known family' );
+	$check( ! \Sheaf\Fonts::in_catalog( 'ZZ Made Up' ), 'in_catalog: unknown family' );
+
+	// Drift guard: every substitution target must exist in the catalog.
+	$missing = array_filter(
+		\Sheaf\Fonts::substitution_targets(),
+		static function ( $t ) {
+			return ! \Sheaf\Fonts::in_catalog( $t );
+		}
+	);
+	$check( [] === $missing, 'every substitution target exists in the catalog' . ( $missing ? ' (missing: ' . implode( ', ', $missing ) . ')' : '' ) );
+
 	// install_from_catalog: download + self-host a real (small) catalog font.
 	$before = get_posts( [ 'post_type' => 'wp_font_family', 'name' => 'abeezee', 'post_status' => 'any', 'numberposts' => 1 ] );
 	if ( $before ) {
