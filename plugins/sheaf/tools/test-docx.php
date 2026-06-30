@@ -58,12 +58,30 @@ $document = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 	. '</w:p>'
 	. '</w:body></w:document>';
 
+$styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+	. '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+	// A character style that carries a font, size and colour.
+	. '<w:style w:type="character" w:styleId="ComputerVoice">'
+	. '<w:name w:val="Computer Voice"/>'
+	. '<w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz w:val="20"/><w:color w:val="0070C0"/></w:rPr>'
+	. '</w:style>'
+	// A paragraph style that carries both layout (pPr) and a font (rPr).
+	. '<w:style w:type="paragraph" w:styleId="Bibliography">'
+	. '<w:name w:val="Bibliography"/>'
+	. '<w:pPr><w:jc w:val="both"/><w:ind w:left="720" w:hanging="360"/></w:pPr>'
+	. '<w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/></w:rPr>'
+	. '</w:style>'
+	// A table style we should ignore.
+	. '<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/></w:style>'
+	. '</w:styles>';
+
 $tmp = tempnam( sys_get_temp_dir(), 'sheafdocx' );
 $zip = new ZipArchive();
 $zip->open( $tmp, ZipArchive::CREATE | ZipArchive::OVERWRITE );
 $zip->addFromString( '[Content_Types].xml', $content_types );
 $zip->addFromString( '_rels/.rels', $rels );
 $zip->addFromString( 'word/document.xml', $document );
+$zip->addFromString( 'word/styles.xml', $styles );
 $zip->close();
 
 try {
@@ -101,6 +119,22 @@ try {
 	$check( '12pt' === ( $biblio['margin-bottom'] ?? '' ), 'reads spacing after (240 twips -> 12pt)' );
 	$check( '2' === ( $biblio['line-height'] ?? '' ), 'reads line spacing (480/240 auto -> 2)' );
 	$check( [] === ( $pdirect['plain'] ?? [ 'x' ] ), 'plain paragraph has no direct formatting' );
+
+	// Style definitions from styles.xml.
+	$styles_ir = (array) ( $ir['styles'] ?? [] );
+	$cv        = (array) ( $styles_ir['ComputerVoice'] ?? [] );
+	$check( 'Computer Voice' === ( $cv['name'] ?? '' ), 'styles: reads character style human name' );
+	$check( 'character' === ( $cv['type'] ?? '' ), 'styles: records the character type' );
+	$check( 'Consolas' === ( $cv['props']['font-family'] ?? '' ), 'styles: character style carries its font' );
+	$check( '10pt' === ( $cv['props']['font-size'] ?? '' ), 'styles: character style carries its size' );
+	$check( '#0070c0' === ( $cv['props']['color'] ?? '' ), 'styles: character style carries its colour' );
+
+	$bib = (array) ( $styles_ir['Bibliography'] ?? [] );
+	$check( 'Bibliography' === ( $bib['name'] ?? '' ), 'styles: reads paragraph style name' );
+	$check( 'justify' === ( $bib['props']['text-align'] ?? '' ), 'styles: paragraph style carries alignment' );
+	$check( '36pt' === ( $bib['props']['margin-left'] ?? '' ), 'styles: paragraph style carries indent' );
+	$check( 'Calibri' === ( $bib['props']['font-family'] ?? '' ), 'styles: paragraph style carries its font (rPr)' );
+	$check( ! isset( $styles_ir['TableGrid'] ), 'styles: ignores table styles' );
 } finally {
 	@unlink( $tmp );
 }

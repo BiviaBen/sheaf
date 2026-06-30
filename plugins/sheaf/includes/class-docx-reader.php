@@ -50,6 +50,9 @@ final class Docx_Reader {
 	/** numId => true when that list is a bullet (unordered) list. */
 	private array $bullet_lists = [];
 
+	/** styleId => ['name'=>string,'type'=>string,'props'=>array] from styles.xml. */
+	private array $styles = [];
+
 	private int $image_count = 0;
 	private int $table_count = 0;
 	private string $title     = '';
@@ -58,7 +61,7 @@ final class Docx_Reader {
 	 * Read a .docx file at $path into the IR.
 	 *
 	 * @param string $path Absolute path to the .docx file.
-	 * @return array{title:string,blocks:array,images:int,tables:int}
+	 * @return array{title:string,blocks:array,images:int,tables:int,styles:array}
 	 * @throws \RuntimeException When the file cannot be read or parsed.
 	 */
 	public static function read( string $path ): array {
@@ -82,6 +85,7 @@ final class Docx_Reader {
 		$document = $zip->getFromName( 'word/document.xml' );
 		$rels     = $zip->getFromName( 'word/_rels/document.xml.rels' );
 		$numbering = $zip->getFromName( 'word/numbering.xml' );
+		$styles    = $zip->getFromName( 'word/styles.xml' );
 		$zip->close();
 
 		if ( false === $document ) {
@@ -90,6 +94,7 @@ final class Docx_Reader {
 
 		$this->relationships = $this->parse_relationships( (string) $rels );
 		$this->bullet_lists  = $this->parse_numbering( (string) $numbering );
+		$this->styles        = $this->parse_styles( (string) $styles );
 
 		$blocks = $this->parse_document( $document );
 
@@ -98,6 +103,7 @@ final class Docx_Reader {
 			'blocks' => $blocks,
 			'images' => $this->image_count,
 			'tables' => $this->table_count,
+			'styles' => $this->styles,
 		];
 	}
 
@@ -167,6 +173,56 @@ final class Docx_Reader {
 			$map[ $num_id ] = $abstract[ $abstract_id ] ?? false;
 		}
 		return $map;
+	}
+
+	/**
+	 * Read the style definitions from word/styles.xml: each character or paragraph
+	 * style's id, its human name (w:name) and the CSS props its formatting maps to.
+	 * Character styles contribute their run formatting (font/size/colour); paragraph
+	 * styles contribute that plus their layout (alignment/indent/spacing). This is
+	 * what lets a named Word style ("Bibliography", "Computer Voice") become a
+	 * style-set style that actually carries its font and layout on import.
+	 *
+	 * v1 reads each style's OWN rPr/pPr only — w:basedOn inheritance is not
+	 * resolved, so a style that relies on its parent for a property won't carry it.
+	 *
+	 * @return array<string,array{name:string,type:string,props:array<string,string>}>
+	 */
+	private function parse_styles( string $xml ): array {
+		$dom = $this->load_xml( $xml );
+		if ( ! $dom ) {
+			return [];
+		}
+		$xpath = new \DOMXPath( $dom );
+		$xpath->registerNamespace( 'w', self::NS_W );
+
+		$styles = [];
+		foreach ( $xpath->query( '//w:style' ) as $style ) {
+			if ( ! $style instanceof \DOMElement ) {
+				continue;
+			}
+			$type = $this->attr( $xpath, $style, '@w:type' );
+			if ( 'character' !== $type && 'paragraph' !== $type ) {
+				continue; // Table and numbering styles don't map to our styles.
+			}
+			$id = $this->attr( $xpath, $style, '@w:styleId' );
+			if ( '' === $id ) {
+				continue;
+			}
+			$name = $this->attr( $xpath, $style, 'w:name/@w:val' );
+
+			$props = $this->parse_direct( $xpath, $style ); // rPr: font/size/colour.
+			if ( 'paragraph' === $type ) {
+				$props = array_merge( $props, $this->parse_direct_paragraph( $xpath, $style ) ); // pPr: layout.
+			}
+
+			$styles[ $id ] = [
+				'name'  => '' !== $name ? $name : $id,
+				'type'  => $type,
+				'props' => $props,
+			];
+		}
+		return $styles;
 	}
 
 	/**
