@@ -50,6 +50,9 @@ final class Import_Serializer {
 			// Direct-formatting signature => CSS class for an inline <span>.
 			// Applied per run (see Import_Serializer::direct_signature()).
 			'direct_style_map' => [],
+			// Paragraph direct-formatting signature => CSS class for a paragraph
+			// block. Applied per block in render_block().
+			'direct_block_map' => [],
 		];
 	}
 
@@ -63,7 +66,7 @@ final class Import_Serializer {
 		$defaults = self::default_settings();
 		$out      = [];
 		foreach ( $defaults as $key => $default ) {
-			if ( 'style_map' === $key || 'block_style_map' === $key || 'direct_style_map' === $key ) {
+			if ( 'style_map' === $key || 'block_style_map' === $key || 'direct_style_map' === $key || 'direct_block_map' === $key ) {
 				$out[ $key ] = is_array( $raw[ $key ] ?? null ) ? array_map( 'sanitize_html_class', $raw[ $key ] ) : [];
 				continue;
 			}
@@ -159,9 +162,17 @@ final class Import_Serializer {
 				}
 				// A mapped Word paragraph style becomes a paragraph block-style
 				// class (e.g. "is-style-sheaf-…"), when named-style mapping is on.
+				// Failing that, a mapped paragraph direct-formatting signature does
+				// (unnamed/ad-hoc mapping). Named takes precedence.
 				$class = ! empty( $settings['keep_named_styles'] )
 					? (string) ( $settings['block_style_map'][ $block['style'] ?? '' ] ?? '' )
 					: '';
+				if ( '' === $class && ! empty( $settings['keep_unnamed_styles'] ) ) {
+					$signature = self::direct_signature( (array) ( $block['direct'] ?? [] ) );
+					if ( '' !== $signature ) {
+						$class = (string) ( $settings['direct_block_map'][ $signature ] ?? '' );
+					}
+				}
 				return self::wrap_paragraph( $inline, $class );
 		}
 	}

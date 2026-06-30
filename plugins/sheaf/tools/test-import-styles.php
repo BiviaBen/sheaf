@@ -95,6 +95,46 @@ try {
 	$html_doff = \Sheaf\Import_Serializer::to_blocks( $dblocks, $doff );
 	$check( false === strpos( $html_doff, '<span class=' ), 'direct mapping gated off when unchecked' );
 
+	/* ---- Serializer: paragraph direct formatting -> block-style class ----- */
+
+	$psig = \Sheaf\Import_Serializer::direct_signature( [ 'text-align' => 'justify', 'margin-left' => '36pt', 'text-indent' => '-18pt' ] );
+	$pdblocks = [
+		[
+			'type'   => 'paragraph',
+			'style'  => '',
+			'direct' => [ 'text-align' => 'justify', 'margin-left' => '36pt', 'text-indent' => '-18pt' ],
+			'runs'   => [ [ 'text' => 'A bibliography entry.', 'style' => '', 'direct' => [] ] ],
+		],
+	];
+	$pdon = \Sheaf\Import_Serializer::sanitize_settings(
+		[
+			'keep_unnamed_styles' => true,
+			'direct_block_map'    => [ $psig => 'is-style-sheaf-academic-biblio' ],
+		]
+	);
+	$html_pd = \Sheaf\Import_Serializer::to_blocks( $pdblocks, $pdon );
+	$check( false !== strpos( $html_pd, '"className":"is-style-sheaf-academic-biblio"' ), 'paragraph direct formatting -> block className attr' );
+	$check( false !== strpos( $html_pd, '<p class="is-style-sheaf-academic-biblio">' ), 'paragraph direct formatting -> block class on <p>' );
+
+	// Gated off when the unnamed toggle is unchecked.
+	$pdoff = \Sheaf\Import_Serializer::sanitize_settings( [ 'direct_block_map' => [ $psig => 'is-style-sheaf-academic-biblio' ] ] );
+	$html_pdoff = \Sheaf\Import_Serializer::to_blocks( $pdblocks, $pdoff );
+	$check( false === strpos( $html_pdoff, 'class="is-style-sheaf-academic-biblio"' ), 'paragraph direct mapping gated off when unchecked' );
+
+	// A named paragraph style takes precedence over its direct formatting.
+	$pdnamed = \Sheaf\Import_Serializer::sanitize_settings(
+		[
+			'keep_named_styles'   => true,
+			'keep_unnamed_styles' => true,
+			'block_style_map'     => [ 'Bibliography' => 'is-style-sheaf-named-biblio' ],
+			'direct_block_map'    => [ $psig => 'is-style-sheaf-academic-biblio' ],
+		]
+	);
+	$named_block = [ [ 'type' => 'paragraph', 'style' => 'Bibliography', 'direct' => $pdblocks[0]['direct'], 'runs' => $pdblocks[0]['runs'] ] ];
+	$html_pdnamed = \Sheaf\Import_Serializer::to_blocks( $named_block, $pdnamed );
+	$check( false !== strpos( $html_pdnamed, 'is-style-sheaf-named-biblio' ), 'named paragraph style wins over direct formatting' );
+	$check( false === strpos( $html_pdnamed, 'academic-biblio' ), 'direct paragraph class not also applied when named wins' );
+
 	/* ---- Serializer: paragraph style -> block-style class ----------------- */
 
 	$blocks = [
