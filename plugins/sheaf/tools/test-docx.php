@@ -1,7 +1,9 @@
 <?php
 /**
- * Unit tests for the .docx reader's direct-formatting detection
- * (Sheaf\Docx_Reader::parse_direct, surfaced as run['direct']). CLI-only.
+ * Unit tests for the .docx reader's direct-formatting detection: run-level
+ * (Sheaf\Docx_Reader::parse_direct, surfaced as run['direct']) and
+ * paragraph-level (parse_direct_paragraph, surfaced as block['direct']).
+ * CLI-only.
  *
  *   wpenv run cli wp eval-file wp-content/plugins/sheaf/tools/test-docx.php
  *
@@ -45,6 +47,15 @@ $document = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 	. '<w:r><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/><w:sz w:val="20"/><w:color w:val="00B050"/></w:rPr><w:t>green mono</w:t></w:r>'
 	. '</w:p>'
 	. '<w:p><w:r><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>marked</w:t></w:r></w:p>'
+	// A bibliography-style paragraph: justified, hanging indent, tight spacing.
+	. '<w:p>'
+	. '<w:pPr>'
+	. '<w:jc w:val="both"/>'
+	. '<w:ind w:left="720" w:hanging="360"/>'
+	. '<w:spacing w:before="0" w:after="240" w:line="480" w:lineRule="auto"/>'
+	. '</w:pPr>'
+	. '<w:r><w:t>biblio entry</w:t></w:r>'
+	. '</w:p>'
 	. '</w:body></w:document>';
 
 $tmp = tempnam( sys_get_temp_dir(), 'sheafdocx' );
@@ -72,6 +83,24 @@ try {
 	$check( '#00b050' === ( $direct['green mono']['color'] ?? '' ), 'reads direct color' );
 	$check( [] === ( $direct['plain'] ?? [ 'x' ] ), 'plain run has no direct formatting' );
 	$check( 'yellow' === ( $direct['marked']['background-color'] ?? '' ), 'reads highlight as background-color' );
+
+	// Collect paragraph-level direct formatting by text.
+	$pdirect = [];
+	foreach ( $blocks as $block ) {
+		$key = trim( (string) ( $block['runs'][0]['text'] ?? '' ) );
+		if ( '' !== $key ) {
+			$pdirect[ $key ] = (array) ( $block['direct'] ?? [] );
+		}
+	}
+
+	$biblio = $pdirect['biblio entry'] ?? [];
+	$check( 'justify' === ( $biblio['text-align'] ?? '' ), 'reads paragraph alignment (jc both -> justify)' );
+	$check( '36pt' === ( $biblio['margin-left'] ?? '' ), 'reads left indent (720 twips -> 36pt)' );
+	$check( '-18pt' === ( $biblio['text-indent'] ?? '' ), 'reads hanging indent (360 twips -> -18pt)' );
+	$check( '0pt' === ( $biblio['margin-top'] ?? 'x' ), 'keeps spacing before 0 (margin-top: 0pt)' );
+	$check( '12pt' === ( $biblio['margin-bottom'] ?? '' ), 'reads spacing after (240 twips -> 12pt)' );
+	$check( '2' === ( $biblio['line-height'] ?? '' ), 'reads line spacing (480/240 auto -> 2)' );
+	$check( [] === ( $pdirect['plain'] ?? [ 'x' ] ), 'plain paragraph has no direct formatting' );
 } finally {
 	@unlink( $tmp );
 }

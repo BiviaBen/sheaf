@@ -55,6 +55,8 @@ final class Style_Sets {
 		'background-color',
 		'margin-top',
 		'margin-bottom',
+		'margin-left',
+		'margin-right',
 	];
 
 	// --- Read -----------------------------------------------------------------

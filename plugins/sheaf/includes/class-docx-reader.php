@@ -17,6 +17,7 @@
  *     'level'   => int,    // heading only (1-6)
  *     'ordered' => bool,   // list only
  *     'style'   => string, // originating Word paragraph-style name
+ *     'direct'  => array,  // ad-hoc paragraph formatting (align/indent/spacing)
  *     'runs'    => run[],   // paragraph/heading/quote
  *     'items'   => run[][], // list: one run-array per item
  *   ]
@@ -266,28 +267,33 @@ final class Docx_Reader {
 			return null; // Drop empty paragraphs (Word emits many).
 		}
 
+		$direct = $this->parse_direct_paragraph( $xpath, $p );
+
 		$level = $this->heading_level( $style );
 		if ( $level > 0 ) {
 			return [
-				'type'  => 'heading',
-				'level' => $level,
-				'style' => $style,
-				'runs'  => $runs,
+				'type'   => 'heading',
+				'level'  => $level,
+				'style'  => $style,
+				'direct' => $direct,
+				'runs'   => $runs,
 			];
 		}
 
 		if ( $this->is_quote_style( $style ) ) {
 			return [
-				'type'  => 'quote',
-				'style' => $style,
-				'runs'  => $runs,
+				'type'   => 'quote',
+				'style'  => $style,
+				'direct' => $direct,
+				'runs'   => $runs,
 			];
 		}
 
 		return [
-			'type'  => 'paragraph',
-			'style' => $style,
-			'runs'  => $runs,
+			'type'   => 'paragraph',
+			'style'  => $style,
+			'direct' => $direct,
+			'runs'   => $runs,
 		];
 	}
 
@@ -447,6 +453,92 @@ final class Docx_Reader {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Direct (ad-hoc) paragraph formatting from w:pPr — alignment, indentation
+	 * and spacing applied directly to a paragraph rather than through a named
+	 * paragraph style. The block-level counterpart to parse_direct: the basis
+	 * for clustering "unnamed" paragraph styles on import (e.g. an academic
+	 * bibliography's hanging indent). Word measures are twips (1/20 point).
+	 *
+	 * @return array<string,string> CSS-style props (empty when the paragraph is plain).
+	 */
+	private function parse_direct_paragraph( \DOMXPath $xpath, \DOMElement $p ): array {
+		$out = [];
+
+		// Alignment: w:jc. Word "both" is full justification; "start"/"end" are
+		// the writing-direction-relative forms of left/right.
+		$jc  = $this->attr( $xpath, $p, 'w:pPr/w:jc/@w:val' );
+		$map = [ 'both' => 'justify', 'center' => 'center', 'right' => 'right', 'end' => 'right', 'left' => 'left', 'start' => 'left' ];
+		if ( isset( $map[ $jc ] ) ) {
+			$out['text-align'] = $map[ $jc ];
+		}
+
+		// Indentation: w:ind. left/start -> margin-left, right/end -> margin-right.
+		// A hanging indent is margin-left plus a negative text-indent; firstLine
+		// is a positive text-indent.
+		$ind = $xpath->query( 'w:pPr/w:ind', $p )->item( 0 );
+		if ( $ind instanceof \DOMElement ) {
+			$left = $ind->getAttributeNS( self::NS_W, 'left' );
+			if ( '' === $left ) {
+				$left = $ind->getAttributeNS( self::NS_W, 'start' );
+			}
+			if ( is_numeric( $left ) ) {
+				$out['margin-left'] = $this->twips_pt( $left );
+			}
+
+			$right = $ind->getAttributeNS( self::NS_W, 'right' );
+			if ( '' === $right ) {
+				$right = $ind->getAttributeNS( self::NS_W, 'end' );
+			}
+			if ( is_numeric( $right ) ) {
+				$out['margin-right'] = $this->twips_pt( $right );
+			}
+
+			$hanging = $ind->getAttributeNS( self::NS_W, 'hanging' );
+			$first   = $ind->getAttributeNS( self::NS_W, 'firstLine' );
+			if ( is_numeric( $hanging ) && 0.0 !== (float) $hanging ) {
+				$out['text-indent'] = '-' . $this->twips_pt( $hanging );
+			} elseif ( is_numeric( $first ) && 0.0 !== (float) $first ) {
+				$out['text-indent'] = $this->twips_pt( $first );
+			}
+		}
+
+		// Spacing: w:spacing. before/after -> margin-top/bottom (kept even at 0,
+		// since "0" is a deliberate tight setting). line -> line-height: in "auto"
+		// mode it is 240ths of a line (a unitless multiplier); exact/atLeast store
+		// twips.
+		$spacing = $xpath->query( 'w:pPr/w:spacing', $p )->item( 0 );
+		if ( $spacing instanceof \DOMElement ) {
+			$before = $spacing->getAttributeNS( self::NS_W, 'before' );
+			if ( is_numeric( $before ) ) {
+				$out['margin-top'] = $this->twips_pt( $before );
+			}
+			$after = $spacing->getAttributeNS( self::NS_W, 'after' );
+			if ( is_numeric( $after ) ) {
+				$out['margin-bottom'] = $this->twips_pt( $after );
+			}
+			$line = $spacing->getAttributeNS( self::NS_W, 'line' );
+			$rule = $spacing->getAttributeNS( self::NS_W, 'lineRule' );
+			if ( is_numeric( $line ) && 0.0 !== (float) $line ) {
+				if ( 'exact' === $rule || 'atLeast' === $rule ) {
+					$out['line-height'] = $this->twips_pt( $line );
+				} else {
+					$out['line-height'] = rtrim( rtrim( number_format( (float) $line / 240, 2 ), '0' ), '.' );
+				}
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Convert a twips measurement (1/20 point) to a CSS "pt" string, trimming
+	 * trailing zeros: "720" -> "36pt", "360" -> "18pt", "210" -> "10.5pt".
+	 */
+	private function twips_pt( string $twips ): string {
+		return rtrim( rtrim( number_format( (float) $twips / 20, 1 ), '0' ), '.' ) . 'pt';
 	}
 
 	/**
