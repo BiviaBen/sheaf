@@ -171,6 +171,14 @@ final class Scroll_Settings {
 
 		$messages = [];
 		foreach ( libxml_get_errors() as $error ) {
+			// 801 = XML_HTML_UNKNOWN_TAG: libxml's HTML parser doesn't recognise
+			// SVG, MathML or custom-element tags and calls them "invalid". They are
+			// valid HTML5 and explicitly allowed here (any tag, trusted author), so
+			// they are not malformation — only structural errors (mismatched
+			// nesting, stray end tags, …) should warn.
+			if ( 801 === (int) $error->code ) {
+				continue;
+			}
 			$message = trim( (string) $error->message );
 			if ( '' !== $message ) {
 				$messages[] = $message;

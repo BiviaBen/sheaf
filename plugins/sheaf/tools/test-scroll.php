@@ -92,6 +92,10 @@ try {
 	// malformation: mismatched nesting and stray end tags.
 	$check( ! empty( \Sheaf\Scroll_Settings::lint_html( '<b><i>x</b></i>' ) ), 'lint: mismatched nesting warns' );
 	$check( ! empty( \Sheaf\Scroll_Settings::lint_html( 'hello </div>' ) ), 'lint: stray end tag warns' );
+	// Foreign (SVG/MathML) and custom-element tags are valid HTML5 dividers, not
+	// malformation — they must not warn (libxml calls them "invalid").
+	$check( [] === \Sheaf\Scroll_Settings::lint_html( '<svg viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10"/></svg>' ), 'lint: inline SVG is clean' );
+	$check( [] === \Sheaf\Scroll_Settings::lint_html( '<my-divider>x</my-divider>' ), 'lint: custom element is clean' );
 
 	// break_html(): HTML only surfaces for the divider break choices.
 	$check( '<hr>' === \Sheaf\Scroll_Settings::break_html( [ 'chapter_break' => 'hr', 'chapter_break_html' => '<hr>' ], 'chapter_break' ), 'break_html: returned for hr' );
