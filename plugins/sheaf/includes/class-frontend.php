@@ -239,13 +239,10 @@ final class Frontend {
 			return $content;
 		}
 
-		// In full-book view the page represents the whole book, so the trail
-		// should end at the book, not at whichever chapter was the entry point.
-		$id      = (int) get_the_ID();
-		$book_id = Books::get_book_id( $id );
-		$crumb   = ( $book_id && Scroll_Settings::enabled( $book_id ) ) ? $book_id : $id;
-
-		return Renderer::breadcrumbs( $crumb ) . $content;
+		// Always render the chapter's own trail here. In full-book view the
+		// reader rewrites it to end at the book (client-side, so the plain
+		// single-chapter fallback — no JS, or opted out — stays correct).
+		return Renderer::breadcrumbs( (int) get_the_ID() ) . $content;
 	}
 
 	/**
@@ -419,6 +416,7 @@ final class Frontend {
 			'bookId'     => $book_id,
 			'bookTitle'  => get_the_title( $book_id ),
 			'bookUrl'    => get_permalink( $book_id ),
+			'bookCrumbs' => Renderer::breadcrumbs( $book_id ),
 			'currentId'  => $chapter_id,
 			'totalPages' => (int) $map['total_pages'],
 			'settings'   => [

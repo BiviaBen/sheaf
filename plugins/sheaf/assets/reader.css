@@ -132,3 +132,50 @@
 	font-style: italic;
 	opacity: 0.7;
 }
+
+/* --------------------------------------------------------- view toggle -- */
+
+/* "Read one chapter at a time" at the foot of the position sidebar. */
+.sheaf-rail__toggle {
+	margin-top: 0.5rem;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	font-size: 0.75rem;
+	text-align: left;
+	opacity: 0.5;
+	cursor: pointer;
+	transition: opacity 0.15s ease;
+}
+
+.sheaf-rail__toggle:hover {
+	opacity: 0.85;
+	text-decoration: underline;
+}
+
+/* "Read the whole book" affordance shown on an opted-out plain chapter. */
+.sheaf-view-toggle {
+	position: fixed;
+	left: 1rem;
+	bottom: 1rem;
+	z-index: 20;
+}
+
+.sheaf-view-toggle__btn {
+	padding: 0.4rem 0.8rem;
+	border: 1px solid currentColor;
+	border-radius: 999px;
+	background: none;
+	color: inherit;
+	font: inherit;
+	font-size: 0.8rem;
+	opacity: 0.55;
+	cursor: pointer;
+	transition: opacity 0.15s ease;
+}
+
+.sheaf-view-toggle__btn:hover {
+	opacity: 0.9;
+}

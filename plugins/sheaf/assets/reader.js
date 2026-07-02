@@ -18,12 +18,20 @@
 	if ( ! data || ! data.chapters || data.chapters.length < 2 ) {
 		return; // Nothing to stitch.
 	}
-	if ( ! ( 'IntersectionObserver' in window ) ) {
-		return; // Degrade to the normal single-chapter page.
-	}
 
 	var spine = data.chapters;
 	var settings = data.settings || {};
+
+	// The reader can drop to a plain one-chapter view; that choice is remembered
+	// per book across visits. When opted out, leave the normal single-chapter
+	// page untouched and just offer a way back into full-book view.
+	if ( isOptedOut() ) {
+		offerFullBook();
+		return;
+	}
+	if ( ! ( 'IntersectionObserver' in window ) ) {
+		return; // Degrade to the normal single-chapter page.
+	}
 
 	// The server-rendered chapter this page loaded as.
 	var currentEl = document.querySelector( '.sheaf-chapter[data-chapter-id="' + data.currentId + '"]' )
@@ -47,6 +55,7 @@
 
 	document.body.classList.add( 'sheaf-scroll-active' );
 	retitleForBook();
+	rebreadcrumb();
 	buildSlots();
 	observeSlots();
 	buildSidebar();
@@ -67,6 +76,70 @@
 		if ( heading ) {
 			heading.textContent = data.bookTitle;
 		}
+	}
+
+	// The server renders the entry chapter's own breadcrumb trail; in full-book
+	// view swap it for the book's trail (ending at the book). Client-side so the
+	// plain single-chapter fallback keeps the chapter trail.
+	function rebreadcrumb() {
+		if ( ! data.bookCrumbs ) {
+			return;
+		}
+		var nav = document.querySelector( '.sheaf-breadcrumbs' );
+		if ( nav ) {
+			nav.outerHTML = data.bookCrumbs;
+		}
+	}
+
+	/* ----------------------------------------------------------- view opt-out -- */
+
+	function storageKey() {
+		return 'sheaf-scroll-optout-' + data.bookId;
+	}
+
+	function isOptedOut() {
+		try {
+			return '1' === window.localStorage.getItem( storageKey() );
+		} catch ( e ) {
+			return false;
+		}
+	}
+
+	function setOptedOut( on ) {
+		try {
+			if ( on ) {
+				window.localStorage.setItem( storageKey(), '1' );
+			} else {
+				window.localStorage.removeItem( storageKey() );
+			}
+		} catch ( e ) {}
+	}
+
+	// Leave full-book view for a plain single chapter: remember the choice and
+	// reload the chapter the reader is currently on.
+	function enterSingleChapter() {
+		setOptedOut( true );
+		window.location.href = spine[ activeIndex ].url;
+	}
+
+	// Return to full-book view and reload so the reader stitches the page.
+	function enterFullBook() {
+		setOptedOut( false );
+		window.location.reload();
+	}
+
+	// On an opted-out (plain) chapter, drop in a small control to re-enter
+	// full-book view. The rest of the page is the theme's normal render.
+	function offerFullBook() {
+		var bar = document.createElement( 'div' );
+		bar.className = 'sheaf-view-toggle';
+		var btn = document.createElement( 'button' );
+		btn.type = 'button';
+		btn.className = 'sheaf-view-toggle__btn';
+		btn.textContent = 'Read the whole book';
+		btn.addEventListener( 'click', enterFullBook );
+		bar.appendChild( btn );
+		document.body.appendChild( bar );
 	}
 
 	/* --------------------------------------------------------- spine utils -- */
@@ -416,6 +489,13 @@
 			here.appendChild( timeEl );
 			sidebar.appendChild( here );
 		}
+
+		var toggle = document.createElement( 'button' );
+		toggle.type = 'button';
+		toggle.className = 'sheaf-rail__toggle';
+		toggle.textContent = 'Read one chapter at a time';
+		toggle.addEventListener( 'click', enterSingleChapter );
+		sidebar.appendChild( toggle );
 
 		document.body.appendChild( sidebar );
 		positionSidebar();
