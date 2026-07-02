@@ -46,9 +46,26 @@
 	var BAND = '1200px 0px';
 
 	document.body.classList.add( 'sheaf-scroll-active' );
+	retitleForBook();
 	buildSlots();
 	observeSlots();
 	trackPosition();
+
+	// In full-book view the page represents the whole book, so its heading
+	// should name the book — the entry chapter's own title now renders in-flow
+	// (see buildSlots/titleFor). Done in JS to stay theme-agnostic: the heading
+	// is the theme's post-title element, not markup Sheaf controls.
+	function retitleForBook() {
+		if ( ! data.bookTitle ) {
+			return;
+		}
+		var heading = document.querySelector(
+			'h1.wp-block-post-title, h1.entry-title, .wp-block-post-title, .entry-title'
+		);
+		if ( heading ) {
+			heading.textContent = data.bookTitle;
+		}
+	}
 
 	/* --------------------------------------------------------- spine utils -- */
 
@@ -151,10 +168,20 @@
 
 	function buildSlots() {
 		preserveScroll( currentEl, function () {
-			// Wrap the existing current chapter in its slot.
+			// Wrap the existing current chapter in its slot, giving it the same
+			// in-flow break + title a spliced chapter gets so its title sits at
+			// its start rather than being left as the (now book-titled) page <h1>.
 			var cur = makeSlot( currentIndex );
 			cur.setAttribute( 'data-loaded', '1' );
 			rail.insertBefore( cur, currentEl );
+			var landingBreak = breakBefore( currentIndex );
+			if ( landingBreak ) {
+				cur.appendChild( landingBreak );
+			}
+			var landingTitle = titleFor( currentIndex );
+			if ( landingTitle ) {
+				cur.appendChild( landingTitle );
+			}
 			cur.appendChild( currentEl );
 			slots[ currentIndex ] = { el: cur, loaded: true };
 
@@ -255,6 +282,13 @@
 
 		s.loaded = true;
 		s.loading = false;
+
+		// A large jump (Home/End/PageUp-Down, scrollbar click) can land on an
+		// unloaded spacer, so the scroll handler finds no loaded chapter to make
+		// current. Once the slot it landed on loads, catch the URL up — on the
+		// next frame, after this insertion's layout (and any sibling loads in the
+		// same jump) have settled.
+		window.requestAnimationFrame( updateActive );
 	}
 
 	function unloadSlot( idx ) {
@@ -290,7 +324,8 @@
 	// one we consider "current"; reflect it in the URL and title without a reload.
 	function updateActive() {
 		var line = window.innerHeight * 0.33;
-		var best = activeIndex;
+		var best = -1;
+		var bestDist = Infinity;
 		for ( var i = 0; i < slots.length; i++ ) {
 			var s = slots[ i ];
 			if ( ! s || ! s.loaded ) {
@@ -301,8 +336,16 @@
 				best = i;
 				break;
 			}
+			// No chapter straddles the line (e.g. at the very top or bottom of
+			// the book, or mid-load): fall back to the loaded chapter nearest it,
+			// so the URL always resolves to something visible.
+			var dist = r.top > line ? r.top - line : line - r.bottom;
+			if ( dist < bestDist ) {
+				bestDist = dist;
+				best = i;
+			}
 		}
-		if ( best === activeIndex ) {
+		if ( best < 0 || best === activeIndex ) {
 			return;
 		}
 		activeIndex = best;

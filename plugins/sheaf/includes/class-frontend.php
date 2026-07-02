@@ -239,7 +239,13 @@ final class Frontend {
 			return $content;
 		}
 
-		return Renderer::breadcrumbs( (int) get_the_ID() ) . $content;
+		// In full-book view the page represents the whole book, so the trail
+		// should end at the book, not at whichever chapter was the entry point.
+		$id      = (int) get_the_ID();
+		$book_id = Books::get_book_id( $id );
+		$crumb   = ( $book_id && Scroll_Settings::enabled( $book_id ) ) ? $book_id : $id;
+
+		return Renderer::breadcrumbs( $crumb ) . $content;
 	}
 
 	/**
@@ -411,6 +417,8 @@ final class Frontend {
 
 		return [
 			'bookId'     => $book_id,
+			'bookTitle'  => get_the_title( $book_id ),
+			'bookUrl'    => get_permalink( $book_id ),
 			'currentId'  => $chapter_id,
 			'totalPages' => (int) $map['total_pages'],
 			'settings'   => [
