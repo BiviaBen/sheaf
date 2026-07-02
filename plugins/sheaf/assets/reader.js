@@ -49,7 +49,9 @@
 	retitleForBook();
 	buildSlots();
 	observeSlots();
+	buildSidebar();
 	trackPosition();
+	onFrame();
 
 	// In full-book view the page represents the whole book, so its heading
 	// should name the book — the entry chapter's own title now renders in-flow
@@ -285,10 +287,10 @@
 
 		// A large jump (Home/End/PageUp-Down, scrollbar click) can land on an
 		// unloaded spacer, so the scroll handler finds no loaded chapter to make
-		// current. Once the slot it landed on loads, catch the URL up — on the
-		// next frame, after this insertion's layout (and any sibling loads in the
+		// current. Once the slot it landed on loads, catch up — on the next
+		// frame, after this insertion's layout (and any sibling loads in the
 		// same jump) have settled.
-		window.requestAnimationFrame( updateActive );
+		window.requestAnimationFrame( onFrame );
 	}
 
 	function unloadSlot( idx ) {
@@ -305,7 +307,7 @@
 		s.loaded = false;
 	}
 
-	/* -------------------------------------------------------- URL tracking -- */
+	/* ------------------------------------------------ position + tracking -- */
 
 	function trackPosition() {
 		var ticking = false;
@@ -314,18 +316,20 @@
 				ticking = true;
 				window.requestAnimationFrame( function () {
 					ticking = false;
-					updateActive();
+					onFrame();
 				} );
 			}
 		}, { passive: true } );
 	}
 
-	// The chapter crossing a line a third of the way down the viewport is the
-	// one we consider "current"; reflect it in the URL and title without a reload.
-	function updateActive() {
+	// Where the reader is: the loaded chapter crossing a line a third of the way
+	// down the viewport (or, near the ends or mid-load, the nearest loaded one),
+	// plus how far through that chapter we are, 0..1.
+	function currentPosition() {
 		var line = window.innerHeight * 0.33;
 		var best = -1;
 		var bestDist = Infinity;
+		var bestRect = null;
 		for ( var i = 0; i < slots.length; i++ ) {
 			var s = slots[ i ];
 			if ( ! s || ! s.loaded ) {
@@ -334,26 +338,201 @@
 			var r = s.el.getBoundingClientRect();
 			if ( r.top <= line && r.bottom > line ) {
 				best = i;
+				bestRect = r;
 				break;
 			}
-			// No chapter straddles the line (e.g. at the very top or bottom of
-			// the book, or mid-load): fall back to the loaded chapter nearest it,
-			// so the URL always resolves to something visible.
 			var dist = r.top > line ? r.top - line : line - r.bottom;
 			if ( dist < bestDist ) {
 				bestDist = dist;
 				best = i;
+				bestRect = r;
 			}
 		}
-		if ( best < 0 || best === activeIndex ) {
+		if ( best < 0 ) {
+			return null;
+		}
+		var span = bestRect.bottom - bestRect.top;
+		var frac = span > 0 ? ( line - bestRect.top ) / span : 0;
+		frac = frac < 0 ? 0 : ( frac > 1 ? 1 : frac );
+		return { index: best, fraction: frac };
+	}
+
+	// Run once per animation frame while scrolling (and after a load settles):
+	// move the URL to the current chapter and refresh the position sidebar.
+	function onFrame() {
+		var pos = currentPosition();
+		if ( ! pos ) {
 			return;
 		}
-		activeIndex = best;
+		applyActive( pos.index );
+		updateSidebar( pos );
+	}
+
+	// Reflect the current chapter in the URL and document title without a reload.
+	function applyActive( index ) {
+		if ( index === activeIndex ) {
+			return;
+		}
+		activeIndex = index;
 		try {
-			history.replaceState( history.state, '', spine[ best ].url );
+			history.replaceState( history.state, '', spine[ index ].url );
 		} catch ( e ) {}
-		if ( spine[ best ].title ) {
-			document.title = spine[ best ].title;
+		if ( spine[ index ].title ) {
+			document.title = spine[ index ].title;
+		}
+		highlightToc( index );
+	}
+
+	/* --------------------------------------------------------- sidebar -- */
+
+	var sidebar, pageEl, chapterEl, timeEl, tocNav, tocLinks;
+
+	// A fixed column in the left margin showing where the reader is: the pseudo
+	// page (if enabled) and either the current chapter + time to the next, or a
+	// full table of contents that tracks the current chapter. It sits beside the
+	// content and hides itself when the margin is too narrow (mobile is a later
+	// phase). Built here, not server-side, so it stays theme-agnostic.
+	function buildSidebar() {
+		sidebar = document.createElement( 'aside' );
+		sidebar.className = 'sheaf-rail';
+		sidebar.setAttribute( 'aria-label', 'Reading position' );
+
+		if ( settings.showPageNumbers ) {
+			pageEl = document.createElement( 'div' );
+			pageEl.className = 'sheaf-rail__page';
+			sidebar.appendChild( pageEl );
+		}
+
+		if ( settings.showFullToc ) {
+			sidebar.appendChild( buildToc() );
+		} else {
+			var here = document.createElement( 'div' );
+			here.className = 'sheaf-rail__here';
+			chapterEl = document.createElement( 'div' );
+			chapterEl.className = 'sheaf-rail__chapter';
+			timeEl = document.createElement( 'div' );
+			timeEl.className = 'sheaf-rail__time';
+			here.appendChild( chapterEl );
+			here.appendChild( timeEl );
+			sidebar.appendChild( here );
+		}
+
+		document.body.appendChild( sidebar );
+		positionSidebar();
+		highlightToc( activeIndex ); // Mark the landing chapter before any scroll.
+		window.addEventListener( 'resize', positionSidebar, { passive: true } );
+	}
+
+	function buildToc() {
+		tocNav = document.createElement( 'nav' );
+		tocNav.className = 'sheaf-rail__toc';
+		tocNav.setAttribute( 'aria-label', 'Table of contents' );
+		tocLinks = [];
+		for ( var i = 0; i < spine.length; i++ ) {
+			var a = document.createElement( 'a' );
+			a.className = 'sheaf-rail__toc-item' + ( spine[ i ].isSection ? ' sheaf-rail__toc-item--section' : '' );
+			a.href = spine[ i ].url;
+			a.textContent = spine[ i ].title;
+			a.setAttribute( 'data-index', i );
+			a.addEventListener( 'click', onTocClick );
+			tocNav.appendChild( a );
+			tocLinks.push( a );
+		}
+		return tocNav;
+	}
+
+	// A TOC click scrolls to the chapter in place (its slot always has a
+	// position, loaded or not) rather than reloading the whole page.
+	function onTocClick( e ) {
+		var idx = parseInt( this.getAttribute( 'data-index' ), 10 );
+		if ( isNaN( idx ) || ! slots[ idx ] ) {
+			return; // Let the browser follow the href.
+		}
+		e.preventDefault();
+		var top = slots[ idx ].el.getBoundingClientRect().top + window.scrollY;
+		window.scrollTo( 0, top );
+	}
+
+	function highlightToc( index ) {
+		if ( ! tocLinks ) {
+			return;
+		}
+		for ( var i = 0; i < tocLinks.length; i++ ) {
+			var on = i === index;
+			tocLinks[ i ].classList.toggle( 'is-current', on );
+			if ( on ) {
+				tocLinks[ i ].setAttribute( 'aria-current', 'true' );
+			} else {
+				tocLinks[ i ].removeAttribute( 'aria-current' );
+			}
+		}
+		// Slide a taller-than-viewport TOC so the current chapter stays in view.
+		if ( tocNav && tocNav.scrollHeight > tocNav.clientHeight ) {
+			var a = tocLinks[ index ];
+			if ( a ) {
+				tocNav.scrollTop = a.offsetTop - ( tocNav.clientHeight - a.offsetHeight ) / 2;
+			}
+		}
+	}
+
+	function updateSidebar( pos ) {
+		if ( ! sidebar ) {
+			return;
+		}
+		var ch = spine[ pos.index ];
+		if ( pageEl ) {
+			pageEl.textContent = 'Page ' + currentPage( pos ) + ' of ' + data.totalPages;
+		}
+		if ( chapterEl ) {
+			chapterEl.textContent = ch.title;
+		}
+		if ( timeEl ) {
+			timeEl.textContent = timeToNext( pos );
+		}
+	}
+
+	// The pseudo page the reader is on: the chapter's start page plus how far
+	// through its own pages they have scrolled.
+	function currentPage( pos ) {
+		var ch = spine[ pos.index ];
+		var page = ch.startPage || 1;
+		if ( ch.pages > 0 ) {
+			page += Math.min( ch.pages - 1, Math.floor( pos.fraction * ch.pages ) );
+		}
+		return page;
+	}
+
+	// Reading time remaining before the next chapter (i.e. left in this one).
+	function timeToNext( pos ) {
+		var ch = spine[ pos.index ];
+		var remaining = Math.round( ( 1 - pos.fraction ) * ( ch.minutes || 0 ) );
+		if ( remaining < 1 && ch.minutes > 0 ) {
+			remaining = 1;
+		}
+		if ( remaining <= 0 ) {
+			return '';
+		}
+		var last = pos.index >= spine.length - 1;
+		return remaining + ( last ? ' min left' : ' min to next chapter' );
+	}
+
+	// Park the sidebar in the left margin, just left of the content column;
+	// hide it when that margin is too narrow to hold it.
+	function positionSidebar() {
+		if ( ! sidebar ) {
+			return;
+		}
+		// Measure the constrained text column (the chapter element), not its
+		// full-width container: block themes centre children to contentSize, so
+		// the container's left edge is ~0 while the readable column is inset.
+		var contentLeft = currentEl.getBoundingClientRect().left;
+		var gap = 24;
+		var left = contentLeft - gap - sidebar.offsetWidth;
+		if ( left < 8 ) {
+			sidebar.classList.add( 'sheaf-rail--hidden' );
+		} else {
+			sidebar.classList.remove( 'sheaf-rail--hidden' );
+			sidebar.style.left = Math.round( left ) + 'px';
 		}
 	}
 }() );

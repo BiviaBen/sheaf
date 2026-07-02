@@ -54,3 +54,81 @@
 .sheaf-break--hr-page-break > :first-child {
 	margin-top: 0;
 }
+
+/* --------------------------------------------------- position sidebar -- */
+
+/*
+ * A fixed reading-position column in the content's left margin. It inherits
+ * the theme's text colour and mutes it with opacity, so it reads on light and
+ * dark themes alike. reader.js sets its `left` (and hides it when the margin
+ * is too narrow); mobile placement is a later phase.
+ */
+.sheaf-rail {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 12rem;
+	height: 100vh;
+	box-sizing: border-box;
+	padding: 6rem 0 3rem;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 0.75rem;
+	color: inherit;
+	font-size: 0.8rem;
+	line-height: 1.4;
+	overflow: hidden;
+}
+
+.sheaf-rail--hidden {
+	visibility: hidden;
+}
+
+.sheaf-rail__page {
+	opacity: 0.6;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: 0.02em;
+}
+
+.sheaf-rail__chapter {
+	font-weight: 600;
+}
+
+.sheaf-rail__time {
+	opacity: 0.6;
+}
+
+/* Full table of contents: scrolls within itself when taller than the rail. */
+.sheaf-rail__toc {
+	display: flex;
+	flex-direction: column;
+	gap: 0.1rem;
+	max-height: 100%;
+	overflow-y: auto;
+	scrollbar-width: thin;
+}
+
+.sheaf-rail__toc-item {
+	padding: 0.15rem 0 0.15rem 0.6rem;
+	border-left: 2px solid transparent;
+	color: inherit;
+	text-decoration: none;
+	opacity: 0.55;
+	transition: opacity 0.15s ease;
+}
+
+.sheaf-rail__toc-item:hover {
+	opacity: 0.85;
+}
+
+.sheaf-rail__toc-item.is-current {
+	opacity: 1;
+	font-weight: 600;
+	border-left-color: currentColor;
+}
+
+.sheaf-rail__toc-item--section {
+	font-style: italic;
+	opacity: 0.7;
+}
